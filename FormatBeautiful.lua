@@ -61,17 +61,13 @@ local function Format_Beautify(ast)
 	formatExpr = function(expr)
 		local out = string.rep('(', expr.ParenCount or 0)
 		if expr.AstType == 'VarExpr' then
-			if expr.Variable then
-				out = out .. expr.Variable.Name
-			else
-				out = out .. expr.Name
-			end
+			out = out .. expr.Name
 
 		elseif expr.AstType == 'NumberExpr' then
-			out = out..expr.Value.Data
+			out = out..expr.Value
 
 		elseif expr.AstType == 'StringExpr' then
-			out = out..expr.Value.Data
+			out = out..expr.Value
 
 		elseif expr.AstType == 'BooleanExpr' then
 			out = out..tostring(expr.Value)
@@ -108,20 +104,20 @@ local function Format_Beautify(ast)
 
 		elseif expr.AstType == 'StringCallExpr' then
 			out = out..formatExpr(expr.Base) .. " "
-			out = out..expr.Arguments[1].Data
+			out = out..expr.Arguments[1]
 
 		elseif expr.AstType == 'IndexExpr' then
 			out = out..formatExpr(expr.Base).."["..formatExpr(expr.Index).."]"
 
 		elseif expr.AstType == 'MemberExpr' then
-			out = out..formatExpr(expr.Base)..expr.Indexer..expr.Ident.Data
+			out = out..formatExpr(expr.Base)..expr.Indexer..expr.Ident
 
 		elseif expr.AstType == 'Function' then
 			-- anonymous function
 			out = out.."function("
 			if #expr.Arguments > 0 then
 				for i = 1, #expr.Arguments do
-					out = out..expr.Arguments[i].Name
+					out = out..expr.Arguments[i]
 					if i ~= #expr.Arguments then
 						out = out..", "
 					elseif expr.VarArg then
@@ -185,7 +181,7 @@ local function Format_Beautify(ast)
 		elseif statement.AstType == 'LocalStatement' then
 			out = getIndentation() .. out.."local "
 			for i = 1, #statement.LocalList do
-				out = out..statement.LocalList[i].Name
+				out = out..statement.LocalList[i]
 				if i ~= #statement.LocalList then
 					out = out..", "
 				end
@@ -256,14 +252,14 @@ local function Format_Beautify(ast)
 			out = joinStatementsSafe(out, "function ")
 			out = getIndentation() .. out
 			if statement.IsLocal then
-				out = out..statement.Name.Name
+				out = out..statement.Name
 			else
 				out = out..formatExpr(statement.Name)
 			end
 			out = out.."("
 			if #statement.Arguments > 0 then
 				for i = 1, #statement.Arguments do
-					out = out..statement.Arguments[i].Name
+					out = out..statement.Arguments[i]
 					if i ~= #statement.Arguments then
 						out = out..", "
 					elseif statement.VarArg then
@@ -281,7 +277,7 @@ local function Format_Beautify(ast)
 		elseif statement.AstType == 'GenericForStatement' then
 			out = getIndentation() .. "for "
 			for i = 1, #statement.VariableList do
-				out = out..statement.VariableList[i].Name
+				out = out..statement.VariableList[i]
 				if i ~= #statement.VariableList then
 					out = out..", "
 				end
@@ -300,7 +296,7 @@ local function Format_Beautify(ast)
 			out = joinStatementsSafe(out, getIndentation() .. "end") .. EOL
 		elseif statement.AstType == 'NumericForStatement' then
 			out = getIndentation() .. "for "
-			out = out..statement.Variable.Name.." = "
+			out = out..statement.Variable.." = "
 			out = out..formatExpr(statement.Start)..", "..formatExpr(statement.End)
 			if statement.Step then
 				out = out..", "..formatExpr(statement.Step)

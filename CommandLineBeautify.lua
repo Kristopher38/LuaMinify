@@ -10,7 +10,7 @@ local Format_Beautify = require'FormatBeautiful'
 local ParseLua = Parser.ParseLua
 local PrintTable = util.PrintTable
 
-local parserOptions = {disableEmitLeadingWhite=true, disableEmitTokenList=true}
+local options = {disableEmitLeadingWhite=true, disableEmitTokenList=true}
 
 local function splitFilename(name)
 	--table.foreach(arg, print)

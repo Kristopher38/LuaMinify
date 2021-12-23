@@ -691,7 +691,7 @@ local function ParseLua(src, options)
 				local nodeCall = {}
 				nodeCall.AstType    = 'StringCallExpr'
 				nodeCall.Base       = prim
-				nodeCall.Arguments  = { tok:Get(tokenList).Constant }
+				nodeCall.Arguments  = { tok:Get(tokenList).Data }
 				if not options.disableEmitTokenList then
 					nodeCall.Tokens     = tokenList
 				end
@@ -737,7 +737,7 @@ local function ParseLua(src, options)
 		elseif tok:Is('String') then
 			local nodeStr = {}
 			nodeStr.AstType = 'StringExpr'
-			nodeStr.Value   = tok:Get(tokenList).Constant
+			nodeStr.Value   = tok:Get(tokenList).Data
 			if not options.disableEmitTokenList then
 				nodeStr.Tokens  = tokenList
 			end
