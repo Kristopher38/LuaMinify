@@ -10,6 +10,8 @@ local Format_Beautify = require'FormatBeautiful'
 local ParseLua = Parser.ParseLua
 local PrintTable = util.PrintTable
 
+local parserOptions = {disableEmitLeadingWhite=true, disableEmitTokenList=true}
+
 local function splitFilename(name)
 	--table.foreach(arg, print)
 	if name:find(".") then
@@ -43,7 +45,7 @@ if #arg == 1 then
 	local sourceText = inf:read('*all')
 	inf:close()
 	--
-	local st, ast = ParseLua(sourceText)
+	local st, ast = ParseLua(sourceText, options)
 	if not st then
 		--we failed to parse the file, show why
 		print(ast)
@@ -85,7 +87,7 @@ elseif #arg == 2 then
 	local sourceText = inf:read('*all')
 	inf:close()
 	--
-	local st, ast = ParseLua(sourceText)
+	local st, ast = ParseLua(sourceText, options)
 	if not st then
 		--we failed to parse the file, show why
 		print(ast)
