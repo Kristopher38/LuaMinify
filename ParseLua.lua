@@ -182,9 +182,6 @@ local function LexLua(src, options)
 						Line = line,
 						Char = char
 					}
-					token.Print = function()
-						return "<"..(token.Type .. string.rep(' ', 7-#token.Type)).."  "..(token.Data or '').." >"
-					end
 					leadingWhite = ""
 					table.insert(leading, token)
 				end
@@ -203,9 +200,6 @@ local function LexLua(src, options)
 							Line = line,
 							Char = char,
 						}
-						token.Print = function()
-							return "<"..(token.Type .. string.rep(' ', 7-#token.Type)).."  "..(token.Data or '').." >"
-						end
 						table.insert(leading, token)
 						leadingWhite = ""
 					end
@@ -236,9 +230,6 @@ local function LexLua(src, options)
 					Line = line,
 					Char = char,
 				}
-				token.Print = function()
-					return "<"..(token.Type .. string.rep(' ', 7-#token.Type)).."  "..(token.Data or '').." >"
-				end
 				table.insert(leading, token)
 			end
 
@@ -375,9 +366,6 @@ local function LexLua(src, options)
 
 			toEmit.Line = thisLine
 			toEmit.Char = thisChar
-			toEmit.Print = function()
-				return "<"..(toEmit.Type..string.rep(' ', 7-#toEmit.Type)).."  "..(toEmit.Data or '').." >"
-			end
 			tokens[#tokens+1] = toEmit
 
 			--halt after eof has been emitted
