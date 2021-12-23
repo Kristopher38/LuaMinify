@@ -524,72 +524,6 @@ local function ParseLua(src, options)
 	-- No longer needed: handled in Scopes now local GlobalVarGetMap = {} 
 	local VarDigits = {'_', 'a', 'b', 'c', 'd'}
 	local function CreateScope(parent)
-		--[[
-		local scope = {}
-		scope.Parent = parent
-		scope.LocalList = {}
-		scope.LocalMap = {}
-
-		function scope:ObfuscateVariables()
-			for _, var in pairs(scope.LocalList) do
-				local id = ""
-				repeat
-					local chars = "QWERTYUIOPASDFGHJKLZXCVBNMqwertyuioplkjhgfdsazxcvbnm_"
-					local chars2 = "QWERTYUIOPASDFGHJKLZXCVBNMqwertyuioplkjhgfdsazxcvbnm_1234567890"
-					local n = math.random(1, #chars)
-					id = id .. chars:sub(n, n)
-					for i = 1, math.random(0,20) do
-						local n = math.random(1, #chars2)
-						id = id .. chars2:sub(n, n)
-					end
-				until not GlobalVarGetMap[id] and not parent:GetLocal(id) and not scope.LocalMap[id]
-				var.Name = id
-				scope.LocalMap[id] = var
-			end
-		end
-		
-		scope.RenameVars = scope.ObfuscateVariables
-
-		-- Renames a variable from this scope and down.
-		-- Does not rename global variables.
-		function scope:RenameVariable(old, newName)
-			if type(old) == "table" then -- its (theoretically) an AstNode variable
-				old = old.Name
-			end
-			for _, var in pairs(scope.LocalList) do
-				if var.Name == old then
-					var.Name = newName
-					scope.LocalMap[newName] = var
-				end
-			end
-		end
-
-		function scope:GetLocal(name)
-			--first, try to get my variable
-			local my = scope.LocalMap[name]
-			if my then return my end
-
-			--next, try parent
-			if scope.Parent then
-				local par = scope.Parent:GetLocal(name)
-				if par then return par end
-			end
-
-			return nil
-		end
-
-		function scope:CreateLocal(name)
-			--create my own var
-			local my = {}
-			my.Scope = scope
-			my.Name = name
-			my.CanRename = true
-			--
-			scope.LocalList[#scope.LocalList+1] = my
-			scope.LocalMap[name] = my
-			--
-			return my
-		end]]
 		local scope = Scope:new(parent)
 		scope.RenameVars = scope.ObfuscateLocals
 		scope.ObfuscateVariables = scope.ObfuscateLocals
@@ -615,7 +549,7 @@ local function ParseLua(src, options)
 		local isVarArg = false
 		while not tok:ConsumeSymbol(')', tokenList) do
 			if tok:Is('Ident') then
-				local arg = funcScope:CreateLocal(tok:Get(tokenList).Data)
+				local arg = tok:Get(tokenList).Data
 				argList[#argList+1] = arg
 				if not tok:ConsumeSymbol(',', tokenList) then
 					if tok:ConsumeSymbol(')', tokenList) then
@@ -684,22 +618,10 @@ local function ParseLua(src, options)
 
 		elseif tok:Is('Ident') then
 			local id = tok:Get(tokenList)
-			local var = scope:GetLocal(id.Data)
-			if not var then
-				var = scope:GetGlobal(id.Data)
-				if not var then
-					var = scope:CreateGlobal(id.Data)
-				else
-					var.References = var.References + 1
-				end
-			else
-				var.References = var.References + 1
-			end
 			--
 			local nodePrimExp = {}
 			nodePrimExp.AstType   = 'VarExpr'
 			nodePrimExp.Name      = id.Data
-			nodePrimExp.Variable  = var
 			if not options.disableEmitTokenList then
 				nodePrimExp.Tokens    = tokenList
 			end
@@ -1023,7 +945,7 @@ local function ParseLua(src, options)
 			end
 		end
 
-		return true, nil--exp
+		return true, exp
 	end
 
 
@@ -1130,7 +1052,7 @@ local function ParseLua(src, options)
 			if tok:ConsumeSymbol('=', tokenList) then
 				--numeric for
 				local forScope = CreateScope(scope)
-				local forVar = forScope:CreateLocal(baseVarName.Data)
+				local forVar = baseVarName.Data
 				--
 				local st, startEx = ParseExpr(scope)
 				if not st then return false, startEx end
@@ -1172,12 +1094,12 @@ local function ParseLua(src, options)
 				--generic for
 				local forScope = CreateScope(scope)
 				--
-				local varList = { forScope:CreateLocal(baseVarName.Data) }
+				local varList = { baseVarName.Data }
 				while tok:ConsumeSymbol(',', tokenList) do
 					if not tok:Is('Ident') then
 						return false, GenerateError("for variable expected.")
 					end
-					varList[#varList+1] = forScope:CreateLocal(tok:Get(tokenList).Data)
+					varList[#varList+1] = tok:Get(tokenList).Data
 				end
 				if not tok:ConsumeKeyword('in', tokenList) then
 					return false, GenerateError("`in` expected.")
@@ -1271,9 +1193,6 @@ local function ParseLua(src, options)
 				--now patch var list
 				--we can't do this before getting the init list, because the init list does not
 				--have the locals themselves in scope.
-				for i, v in pairs(varList) do
-					varList[i] = scope:CreateLocal(v)
-				end
 
 				local nodeLocal = {}
 				nodeLocal.AstType   = 'LocalStatement'
@@ -1290,12 +1209,11 @@ local function ParseLua(src, options)
 					return false, GenerateError("Function name expected")
 				end
 				local name = tok:Get(tokenList).Data
-				local localVar = scope:CreateLocal(name)
 				--
 				local st, func = ParseFunctionArgsAndBody(scope, tokenList)
 				if not st then return false, func end
 				--
-				func.Name         = localVar
+				func.Name         = name
 				func.IsLocal      = true
 				stat = func
 
