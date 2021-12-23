@@ -634,7 +634,7 @@ local function ParseLua(src, options)
 				if not tok:Is('Ident') then
 					return false, GenerateError("<Ident> expected.")
 				end
-				local id = tok:Get(tokenList)
+				local id = tok:Get(tokenList).Data
 				local nodeIndex = {}
 				nodeIndex.AstType  = 'MemberExpr'
 				nodeIndex.Base     = prim
@@ -691,7 +691,7 @@ local function ParseLua(src, options)
 				local nodeCall = {}
 				nodeCall.AstType    = 'StringCallExpr'
 				nodeCall.Base       = prim
-				nodeCall.Arguments  = { tok:Get(tokenList) }
+				nodeCall.Arguments  = { tok:Get(tokenList).Constant }
 				if not options.disableEmitTokenList then
 					nodeCall.Tokens     = tokenList
 				end
@@ -728,7 +728,7 @@ local function ParseLua(src, options)
 		if tok:Is('Number') then
 			local nodeNum = {}
 			nodeNum.AstType = 'NumberExpr'
-			nodeNum.Value   = tok:Get(tokenList)
+			nodeNum.Value   = tok:Get(tokenList).Data
 			if not options.disableEmitTokenList then
 				nodeNum.Tokens  = tokenList
 			end
@@ -737,7 +737,7 @@ local function ParseLua(src, options)
 		elseif tok:Is('String') then
 			local nodeStr = {}
 			nodeStr.AstType = 'StringExpr'
-			nodeStr.Value   = tok:Get(tokenList)
+			nodeStr.Value   = tok:Get(tokenList).Constant
 			if not options.disableEmitTokenList then
 				nodeStr.Tokens  = tokenList
 			end
@@ -1325,7 +1325,7 @@ local function ParseLua(src, options)
 		end
 
 		if tok:IsSymbol(';') then
-			stat.Semicolon = tok:Get( stat.Tokens )
+			tok:Get( stat.Tokens )
 		end
 		return true, stat
 	end
