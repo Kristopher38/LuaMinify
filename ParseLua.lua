@@ -483,7 +483,10 @@ local function LexLua(src, options)
 end
 
 
-local function ParseLua(src, options)
+local function ParseLua(src, options, hooks)
+	options = options or {}
+	hooks = hooks or {}
+
 	local st, tok
 	if type(src) ~= 'table' then
 		st, tok = LexLua(src, options)
@@ -1343,11 +1346,17 @@ local function ParseLua(src, options)
 		--
 		--local stats = {}
 		--
+		if hooks.statement then
+			nodeStatlist.Body[#nodeStatlist.Body + 1] = hooks.statement()
+		end
 		while not statListCloseKeywords[tok:Peek().Data] and not tok:IsEof() do
 			local st, nodeStatement = ParseStatement()
 			if not st then return false, nodeStatement end
 			--stats[#stats+1] = nodeStatement
 			nodeStatlist.Body[#nodeStatlist.Body + 1] = nodeStatement
+			if hooks.statement then
+				nodeStatlist.Body[#nodeStatlist.Body + 1] = hooks.statement()
+			end
 		end
 
 		if tok:IsEof() then
