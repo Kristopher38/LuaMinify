@@ -35,8 +35,9 @@ local Keywords = lookupify{
 	'return', 'then', 'true', 'until', 'while',
 };
 
-local function LexLua(src)
+local function LexLua(src, options)
 	--token dump
+	options = options or {}
 	local tokens = {}
 
 	local st, err = pcall(function()
@@ -365,7 +366,9 @@ local function LexLua(src)
 			end
 
 			--add the emitted symbol, after adding some common data
-			toEmit.LeadingWhite = leading -- table of leading whitespace/comments
+			if not options.disableEmitLeadingWhite then
+				toEmit.LeadingWhite = leading -- table of leading whitespace/comments
+			end
 			--for k, tok in pairs(leading) do
 			--	tokens[#tokens + 1] = tok
 			--end
@@ -480,10 +483,10 @@ local function LexLua(src)
 end
 
 
-local function ParseLua(src)
+local function ParseLua(src, options)
 	local st, tok
 	if type(src) ~= 'table' then
-		st, tok = LexLua(src)
+		st, tok = LexLua(src, options)
 	else
 		st, tok = true, src
 	end
@@ -642,11 +645,15 @@ local function ParseLua(src)
 		end
 		local nodeFunc = {}
 		nodeFunc.AstType   = 'Function'
-		nodeFunc.Scope     = funcScope
+		if not options.disableEmitScope then
+			nodeFunc.Scope     = funcScope
+		end
 		nodeFunc.Arguments = argList
 		nodeFunc.Body      = body
 		nodeFunc.VarArg    = isVarArg
-		nodeFunc.Tokens    = tokenList
+		if not options.disableEmitTokenList then
+			nodeFunc.Tokens    = tokenList
+		end
 		--
 		return true, nodeFunc
 	end
@@ -669,7 +676,9 @@ local function ParseLua(src)
 				local parensExp = {}
 				parensExp.AstType   = 'Parentheses'
 				parensExp.Inner     = ex
-				parensExp.Tokens    = tokenList
+				if not options.disableEmitTokenList then
+					parensExp.Tokens    = tokenList
+				end
 				return true, parensExp
 			end
 
@@ -691,7 +700,9 @@ local function ParseLua(src)
 			nodePrimExp.AstType   = 'VarExpr'
 			nodePrimExp.Name      = id.Data
 			nodePrimExp.Variable  = var
-			nodePrimExp.Tokens    = tokenList
+			if not options.disableEmitTokenList then
+				nodePrimExp.Tokens    = tokenList
+			end
 			--
 			return true, nodePrimExp
 		else
@@ -718,7 +729,9 @@ local function ParseLua(src)
 				nodeIndex.Base     = prim
 				nodeIndex.Indexer  = symb
 				nodeIndex.Ident    = id
-				nodeIndex.Tokens   = tokenList
+				if not options.disableEmitTokenList then
+					nodeIndex.Tokens   = tokenList
+				end
 				--
 				prim = nodeIndex
 
@@ -732,7 +745,9 @@ local function ParseLua(src)
 				nodeIndex.AstType  = 'IndexExpr'
 				nodeIndex.Base     = prim
 				nodeIndex.Index    = ex
-				nodeIndex.Tokens   = tokenList
+				if not options.disableEmitTokenList then
+					nodeIndex.Tokens   = tokenList
+				end
 				--
 				prim = nodeIndex
 
@@ -754,7 +769,9 @@ local function ParseLua(src)
 				nodeCall.AstType   = 'CallExpr'
 				nodeCall.Base      = prim
 				nodeCall.Arguments = args
-				nodeCall.Tokens    = tokenList
+				if not options.disableEmitTokenList then
+					nodeCall.Tokens    = tokenList
+				end
 				--
 				prim = nodeCall
 
@@ -764,7 +781,9 @@ local function ParseLua(src)
 				nodeCall.AstType    = 'StringCallExpr'
 				nodeCall.Base       = prim
 				nodeCall.Arguments  = { tok:Get(tokenList) }
-				nodeCall.Tokens     = tokenList
+				if not options.disableEmitTokenList then
+					nodeCall.Tokens     = tokenList
+				end
 				--
 				prim = nodeCall
 
@@ -778,7 +797,9 @@ local function ParseLua(src)
 				nodeCall.AstType   = 'TableCallExpr'
 				nodeCall.Base      = prim
 				nodeCall.Arguments = { ex }
-				nodeCall.Tokens    = tokenList
+				if not options.disableEmitTokenList then
+					nodeCall.Tokens    = tokenList
+				end
 				--
 				prim = nodeCall
 
@@ -797,33 +818,43 @@ local function ParseLua(src)
 			local nodeNum = {}
 			nodeNum.AstType = 'NumberExpr'
 			nodeNum.Value   = tok:Get(tokenList)
-			nodeNum.Tokens  = tokenList
+			if not options.disableEmitTokenList then
+				nodeNum.Tokens  = tokenList
+			end
 			return true, nodeNum
 
 		elseif tok:Is('String') then
 			local nodeStr = {}
 			nodeStr.AstType = 'StringExpr'
 			nodeStr.Value   = tok:Get(tokenList)
-			nodeStr.Tokens  = tokenList
+			if not options.disableEmitTokenList then
+				nodeStr.Tokens  = tokenList
+			end
 			return true, nodeStr
 
 		elseif tok:ConsumeKeyword('nil', tokenList) then
 			local nodeNil = {}
 			nodeNil.AstType = 'NilExpr'
-			nodeNil.Tokens  = tokenList
+			if not options.disableEmitTokenList then
+				nodeNil.Tokens  = tokenList
+			end
 			return true, nodeNil
 
 		elseif tok:IsKeyword('false') or tok:IsKeyword('true') then
 			local nodeBoolean = {}
 			nodeBoolean.AstType = 'BooleanExpr'
 			nodeBoolean.Value   = (tok:Get(tokenList).Data == 'true')
-			nodeBoolean.Tokens  = tokenList
+			if not options.disableEmitTokenList then
+				nodeBoolean.Tokens  = tokenList
+			end
 			return true, nodeBoolean
 
 		elseif tok:ConsumeSymbol('...', tokenList) then
 			local nodeDots = {}
 			nodeDots.AstType  = 'DotsExpr'
-			nodeDots.Tokens   = tokenList
+			if not options.disableEmitTokenList then
+				nodeDots.Tokens   = tokenList
+			end
 			return true, nodeDots
 
 		elseif tok:ConsumeSymbol('{', tokenList) then
@@ -909,7 +940,9 @@ local function ParseLua(src)
 					return false, GenerateError("`}` or table entry Expected")
 				end
 			end
-			v.Tokens  = tokenList
+			if not options.disableEmitTokenList then
+				v.Tokens  = tokenList
+			end
 			return true, v
 
 		elseif tok:ConsumeKeyword('function', tokenList) then
@@ -957,7 +990,9 @@ local function ParseLua(src)
 			nodeEx.Rhs     = exp
 			nodeEx.Op      = op
 			nodeEx.OperatorPrecedence = unopprio
-			nodeEx.Tokens  = tokenList
+			if not options.disableEmitTokenList then
+				nodeEx.Tokens  = tokenList
+			end
 			exp = nodeEx
 		else
 			st, exp = ParseSimpleExpr(scope)
@@ -978,7 +1013,9 @@ local function ParseLua(src)
 				nodeEx.Op      = op
 				nodeEx.OperatorPrecedence = prio[1]
 				nodeEx.Rhs     = rhs
-				nodeEx.Tokens  = tokenList
+				if not options.disableEmitTokenList then
+					nodeEx.Tokens  = tokenList
+				end
 				--
 				exp = nodeEx
 			else
@@ -986,7 +1023,7 @@ local function ParseLua(src)
 			end
 		end
 
-		return true, exp
+		return true, nil--exp
 	end
 
 
@@ -1032,8 +1069,9 @@ local function ParseLua(src)
 			if not tok:ConsumeKeyword('end', tokenList) then
 				return false, GenerateError("`end` expected.")
 			end
-
-			nodeIfStat.Tokens = tokenList
+			if not options.disableEmitTokenList then
+				nodeIfStat.Tokens = tokenList
+			end
 			stat = nodeIfStat
 
 		elseif tok:ConsumeKeyword('while', tokenList) then
@@ -1062,7 +1100,9 @@ local function ParseLua(src)
 			--return
 			nodeWhileStat.Condition = nodeCond
 			nodeWhileStat.Body      = nodeBody
-			nodeWhileStat.Tokens    = tokenList
+			if not options.disableEmitTokenList then
+				nodeWhileStat.Tokens    = tokenList
+			end
 			stat = nodeWhileStat
 
 		elseif tok:ConsumeKeyword('do', tokenList) then
@@ -1076,7 +1116,9 @@ local function ParseLua(src)
 			local nodeDoStat = {}
 			nodeDoStat.AstType = 'DoStatement'
 			nodeDoStat.Body    = nodeBlock
-			nodeDoStat.Tokens  = tokenList
+			if not options.disableEmitTokenList then
+				nodeDoStat.Tokens  = tokenList
+			end
 			stat = nodeDoStat
 
 		elseif tok:ConsumeKeyword('for', tokenList) then
@@ -1114,13 +1156,17 @@ local function ParseLua(src)
 				--
 				local nodeFor = {}
 				nodeFor.AstType  = 'NumericForStatement'
-				nodeFor.Scope    = forScope
+				if not options.disableEmitScope then
+					nodeFor.Scope    = forScope
+				end
 				nodeFor.Variable = forVar
 				nodeFor.Start    = startEx
 				nodeFor.End      = endEx
 				nodeFor.Step     = stepEx
 				nodeFor.Body     = body
-				nodeFor.Tokens   = tokenList
+				if not options.disableEmitTokenList then
+					nodeFor.Tokens   = tokenList
+				end
 				stat = nodeFor
 			else
 				--generic for
@@ -1156,11 +1202,15 @@ local function ParseLua(src)
 				--
 				local nodeFor = {}
 				nodeFor.AstType      = 'GenericForStatement'
-				nodeFor.Scope        = forScope
+				if not options.disableEmitScope then
+					nodeFor.Scope        = forScope
+				end
 				nodeFor.VariableList = varList
 				nodeFor.Generators   = generators
 				nodeFor.Body         = body
-				nodeFor.Tokens       = tokenList
+				if not options.disableEmitTokenList then
+					nodeFor.Tokens       = tokenList
+				end
 				stat = nodeFor
 			end
 
@@ -1180,7 +1230,9 @@ local function ParseLua(src)
 			nodeRepeat.AstType   = 'RepeatStatement'
 			nodeRepeat.Condition = cond
 			nodeRepeat.Body      = body
-			nodeRepeat.Tokens    = tokenList
+			if not options.disableEmitTokenList then
+				nodeRepeat.Tokens    = tokenList
+			end
 			stat = nodeRepeat
 
 		elseif tok:ConsumeKeyword('function', tokenList) then
@@ -1227,7 +1279,9 @@ local function ParseLua(src)
 				nodeLocal.AstType   = 'LocalStatement'
 				nodeLocal.LocalList = varList
 				nodeLocal.InitList  = initList
-				nodeLocal.Tokens    = tokenList
+				if not options.disableEmitTokenList then
+					nodeLocal.Tokens    = tokenList
+				end
 				--
 				stat = nodeLocal
 
@@ -1260,7 +1314,9 @@ local function ParseLua(src)
 			local nodeLabel = {}
 			nodeLabel.AstType = 'LabelStatement'
 			nodeLabel.Label   = label
-			nodeLabel.Tokens  = tokenList
+			if not options.disableEmitTokenList then
+				nodeLabel.Tokens  = tokenList
+			end
 			stat = nodeLabel
 
 		elseif tok:ConsumeKeyword('return', tokenList) then
@@ -1280,13 +1336,17 @@ local function ParseLua(src)
 			local nodeReturn = {}
 			nodeReturn.AstType   = 'ReturnStatement'
 			nodeReturn.Arguments = exList
-			nodeReturn.Tokens    = tokenList
+			if not options.disableEmitTokenList then
+				nodeReturn.Tokens    = tokenList
+			end
 			stat = nodeReturn
 
 		elseif tok:ConsumeKeyword('break', tokenList) then
 			local nodeBreak = {}
 			nodeBreak.AstType = 'BreakStatement'
-			nodeBreak.Tokens  = tokenList
+			if not options.disableEmitTokenList then
+				nodeBreak.Tokens  = tokenList
+			end
 			stat = nodeBreak
 
 		elseif tok:ConsumeKeyword('goto', tokenList) then
@@ -1297,7 +1357,9 @@ local function ParseLua(src)
 			local nodeGoto = {}
 			nodeGoto.AstType = 'GotoStatement'
 			nodeGoto.Label   = label
-			nodeGoto.Tokens  = tokenList
+			if not options.disableEmitTokenList then
+				nodeGoto.Tokens  = tokenList
+			end
 			stat = nodeGoto
 
 		else
@@ -1341,7 +1403,9 @@ local function ParseLua(src)
 				nodeAssign.AstType = 'AssignmentStatement'
 				nodeAssign.Lhs     = lhs
 				nodeAssign.Rhs     = rhs
-				nodeAssign.Tokens  = tokenList
+				if not options.disableEmitTokenList then
+					nodeAssign.Tokens  = tokenList
+				end
 				stat = nodeAssign
 
 			elseif suffixed.AstType == 'CallExpr' or
@@ -1352,7 +1416,9 @@ local function ParseLua(src)
 				local nodeCall = {}
 				nodeCall.AstType    = 'CallStatement'
 				nodeCall.Expression = suffixed
-				nodeCall.Tokens     = tokenList
+				if not options.disableEmitTokenList then
+					nodeCall.Tokens     = tokenList
+				end
 				stat = nodeCall
 			else
 				return false, GenerateError("Assignment Statement Expected")
@@ -1373,7 +1439,9 @@ local function ParseLua(src)
 		nodeStatlist.Scope   = CreateScope(scope)
 		nodeStatlist.AstType = 'Statlist'
 		nodeStatlist.Body    = { }
-		nodeStatlist.Tokens  = { }
+		if not options.disableEmitTokenList then
+			nodeStatlist.Tokens  = { }
+		end
 		--
 		--local stats = {}
 		--
@@ -1387,7 +1455,9 @@ local function ParseLua(src)
 		if tok:IsEof() then
 			local nodeEof = {}
 			nodeEof.AstType = 'Eof'
-			nodeEof.Tokens  = { tok:Get() }
+			if not options.disableEmitTokenList then
+				nodeEof.Tokens  = { tok:Get() }
+			end
 			nodeStatlist.Body[#nodeStatlist.Body + 1] = nodeEof
 		end
 
