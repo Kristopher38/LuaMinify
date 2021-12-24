@@ -159,7 +159,9 @@ local function Format_Beautify(ast)
 
 	local formatStatement = function(statement)
 		local out = ""
-		if statement.AstType == 'AssignmentStatement' then
+		if statement.AstType == 'VerbatimCode' then
+			out = getIndentation()..statement.Data
+		elseif statement.AstType == 'AssignmentStatement' then
 			out = getIndentation()
 			for i = 1, #statement.Lhs do
 				out = out..formatExpr(statement.Lhs[i])

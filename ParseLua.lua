@@ -510,6 +510,14 @@ local function ParseLua(src, options, hooks)
 		end
 		return err
 	end
+
+	local function getFirstLine(tokenList)
+		if tokenList[1] then
+			return tokenList[1].Line
+		else
+			error("No first line")
+		end
+	end
 	--
 	local VarUid = 0
 	-- No longer needed: handled in Scopes now local GlobalVarGetMap = {} 
@@ -593,6 +601,7 @@ local function ParseLua(src, options, hooks)
 				if not options.disableEmitTokenList then
 					parensExp.Tokens    = tokenList
 				end
+				parensExp.FirstLine = getFirstLine(tokenList)
 				return true, parensExp
 			end
 
@@ -605,6 +614,7 @@ local function ParseLua(src, options, hooks)
 			if not options.disableEmitTokenList then
 				nodePrimExp.Tokens    = tokenList
 			end
+			nodePrimExp.FirstLine = getFirstLine(tokenList)
 			--
 			return true, nodePrimExp
 		else
@@ -634,6 +644,7 @@ local function ParseLua(src, options, hooks)
 				if not options.disableEmitTokenList then
 					nodeIndex.Tokens   = tokenList
 				end
+				nodeIndex.FirstLine = getFirstLine(tokenList)
 				--
 				prim = nodeIndex
 
@@ -650,6 +661,7 @@ local function ParseLua(src, options, hooks)
 				if not options.disableEmitTokenList then
 					nodeIndex.Tokens   = tokenList
 				end
+				nodeIndex.FirstLine = getFirstLine(tokenList)
 				--
 				prim = nodeIndex
 
@@ -674,6 +686,7 @@ local function ParseLua(src, options, hooks)
 				if not options.disableEmitTokenList then
 					nodeCall.Tokens    = tokenList
 				end
+				nodeCall.FirstLine = getFirstLine(tokenList)
 				--
 				prim = nodeCall
 
@@ -686,6 +699,7 @@ local function ParseLua(src, options, hooks)
 				if not options.disableEmitTokenList then
 					nodeCall.Tokens     = tokenList
 				end
+				nodeCall.FirstLine = getFirstLine(tokenList)
 				--
 				prim = nodeCall
 
@@ -702,6 +716,7 @@ local function ParseLua(src, options, hooks)
 				if not options.disableEmitTokenList then
 					nodeCall.Tokens    = tokenList
 				end
+				nodeCall.FirstLine = prim.FirstLine
 				--
 				prim = nodeCall
 
@@ -723,6 +738,7 @@ local function ParseLua(src, options, hooks)
 			if not options.disableEmitTokenList then
 				nodeNum.Tokens  = tokenList
 			end
+			nodeNum.FirstLine = getFirstLine(tokenList)
 			return true, nodeNum
 
 		elseif tok:Is('String') then
@@ -732,6 +748,7 @@ local function ParseLua(src, options, hooks)
 			if not options.disableEmitTokenList then
 				nodeStr.Tokens  = tokenList
 			end
+			nodeStr.FirstLine = getFirstLine(tokenList)
 			return true, nodeStr
 
 		elseif tok:ConsumeKeyword('nil', tokenList) then
@@ -740,6 +757,7 @@ local function ParseLua(src, options, hooks)
 			if not options.disableEmitTokenList then
 				nodeNil.Tokens  = tokenList
 			end
+			nodeNil.FirstLine = getFirstLine(tokenList)
 			return true, nodeNil
 
 		elseif tok:IsKeyword('false') or tok:IsKeyword('true') then
@@ -749,6 +767,7 @@ local function ParseLua(src, options, hooks)
 			if not options.disableEmitTokenList then
 				nodeBoolean.Tokens  = tokenList
 			end
+			nodeBoolean.FirstLine = getFirstLine(tokenList)
 			return true, nodeBoolean
 
 		elseif tok:ConsumeSymbol('...', tokenList) then
@@ -757,6 +776,7 @@ local function ParseLua(src, options, hooks)
 			if not options.disableEmitTokenList then
 				nodeDots.Tokens   = tokenList
 			end
+			nodeDots.FirstLine = getFirstLine(tokenList)
 			return true, nodeDots
 
 		elseif tok:ConsumeSymbol('{', tokenList) then
@@ -845,6 +865,7 @@ local function ParseLua(src, options, hooks)
 			if not options.disableEmitTokenList then
 				v.Tokens  = tokenList
 			end
+			v.FirstLine = getFirstLine(tokenList)
 			return true, v
 
 		elseif tok:ConsumeKeyword('function', tokenList) then
@@ -852,6 +873,7 @@ local function ParseLua(src, options, hooks)
 			if not st then return false, func end
 			--
 			func.IsLocal = true
+			func.FirstLine = getFirstLine(tokenList)
 			return true, func
 
 		else
@@ -895,6 +917,7 @@ local function ParseLua(src, options, hooks)
 			if not options.disableEmitTokenList then
 				nodeEx.Tokens  = tokenList
 			end
+			nodeEx.FirstLine = getFirstLine(tokenList)
 			exp = nodeEx
 		else
 			st, exp = ParseSimpleExpr()
@@ -918,6 +941,7 @@ local function ParseLua(src, options, hooks)
 				if not options.disableEmitTokenList then
 					nodeEx.Tokens  = tokenList
 				end
+				nodeEx.FirstLine = getFirstLine(tokenList)
 				--
 				exp = nodeEx
 			else
@@ -942,6 +966,7 @@ local function ParseLua(src, options, hooks)
 			local nodeIfStat = {}
 			nodeIfStat.AstType = 'IfStatement'
 			nodeIfStat.Clauses = {}
+			nodeIfStat.FirstLine = getFirstLine(tokenList)
 
 			--clauses
 			repeat
@@ -980,6 +1005,7 @@ local function ParseLua(src, options, hooks)
 			--setup
 			local nodeWhileStat = {}
 			nodeWhileStat.AstType = 'WhileStatement'
+			nodeWhileStat.FirstLine = getFirstLine(tokenList)
 
 			--condition
 			local st, nodeCond = ParseExpr()
@@ -1021,6 +1047,7 @@ local function ParseLua(src, options, hooks)
 			if not options.disableEmitTokenList then
 				nodeDoStat.Tokens  = tokenList
 			end
+			nodeDoStat.FirstLine = getFirstLine(tokenList)
 			stat = nodeDoStat
 
 		elseif tok:ConsumeKeyword('for', tokenList) then
@@ -1065,6 +1092,7 @@ local function ParseLua(src, options, hooks)
 				if not options.disableEmitTokenList then
 					nodeFor.Tokens   = tokenList
 				end
+				nodeFor.FirstLine = getFirstLine(tokenList)
 				stat = nodeFor
 			else
 				--generic for
@@ -1105,6 +1133,7 @@ local function ParseLua(src, options, hooks)
 				if not options.disableEmitTokenList then
 					nodeFor.Tokens       = tokenList
 				end
+				nodeFor.FirstLine = getFirstLine(tokenList)
 				stat = nodeFor
 			end
 
@@ -1127,6 +1156,7 @@ local function ParseLua(src, options, hooks)
 			if not options.disableEmitTokenList then
 				nodeRepeat.Tokens    = tokenList
 			end
+			nodeRepeat.FirstLine = getFirstLine(tokenList)
 			stat = nodeRepeat
 
 		elseif tok:ConsumeKeyword('function', tokenList) then
@@ -1141,6 +1171,7 @@ local function ParseLua(src, options, hooks)
 			--
 			func.IsLocal = false
 			func.Name    = name
+			func.FirstLine = getFirstLine(tokenList)
 			stat = func
 
 		elseif tok:ConsumeKeyword('local', tokenList) then
@@ -1173,6 +1204,7 @@ local function ParseLua(src, options, hooks)
 				if not options.disableEmitTokenList then
 					nodeLocal.Tokens    = tokenList
 				end
+				nodeLocal.FirstLine = getFirstLine(tokenList)
 				--
 				stat = nodeLocal
 
@@ -1187,6 +1219,7 @@ local function ParseLua(src, options, hooks)
 				--
 				func.Name         = name
 				func.IsLocal      = true
+				func.FirstLine = getFirstLine(tokenList)
 				stat = func
 
 			else
@@ -1207,6 +1240,7 @@ local function ParseLua(src, options, hooks)
 			if not options.disableEmitTokenList then
 				nodeLabel.Tokens  = tokenList
 			end
+			nodeLabel.FirstLine = getFirstLine(tokenList)
 			stat = nodeLabel
 
 		elseif tok:ConsumeKeyword('return', tokenList) then
@@ -1229,6 +1263,7 @@ local function ParseLua(src, options, hooks)
 			if not options.disableEmitTokenList then
 				nodeReturn.Tokens    = tokenList
 			end
+			nodeReturn.FirstLine = getFirstLine(tokenList)
 			stat = nodeReturn
 
 		elseif tok:ConsumeKeyword('break', tokenList) then
@@ -1237,6 +1272,7 @@ local function ParseLua(src, options, hooks)
 			if not options.disableEmitTokenList then
 				nodeBreak.Tokens  = tokenList
 			end
+			nodeBreak.FirstLine = getFirstLine(tokenList)
 			stat = nodeBreak
 
 		elseif tok:ConsumeKeyword('goto', tokenList) then
@@ -1250,6 +1286,7 @@ local function ParseLua(src, options, hooks)
 			if not options.disableEmitTokenList then
 				nodeGoto.Tokens  = tokenList
 			end
+			nodeGoto.FirstLine = getFirstLine(tokenList)
 			stat = nodeGoto
 
 		else
@@ -1296,6 +1333,7 @@ local function ParseLua(src, options, hooks)
 				if not options.disableEmitTokenList then
 					nodeAssign.Tokens  = tokenList
 				end
+				nodeAssign.FirstLine = getFirstLine(tokenList)
 				stat = nodeAssign
 
 			elseif suffixed.AstType == 'CallExpr' or
@@ -1309,6 +1347,7 @@ local function ParseLua(src, options, hooks)
 				if not options.disableEmitTokenList then
 					nodeCall.Tokens     = tokenList
 				end
+				nodeCall.FirstLine = suffixed.Base.FirstLine
 				stat = nodeCall
 			else
 				return false, GenerateError("Assignment Statement Expected")
@@ -1331,20 +1370,14 @@ local function ParseLua(src, options, hooks)
 		if not options.disableEmitTokenList then
 			nodeStatlist.Tokens  = { }
 		end
-		--
-		--local stats = {}
-		--
-		if hooks.statement then
-			nodeStatlist.Body[#nodeStatlist.Body + 1] = hooks.statement()
-		end
+
+		local st, nodeStatement
 		while not statListCloseKeywords[tok:Peek().Data] and not tok:IsEof() do
-			local st, nodeStatement = ParseStatement()
+			st, nodeStatement = ParseStatement()
 			if not st then return false, nodeStatement end
-			--stats[#stats+1] = nodeStatement
+
+			nodeStatlist.Body[#nodeStatlist.Body + 1] = hooks.statement(nodeStatement)
 			nodeStatlist.Body[#nodeStatlist.Body + 1] = nodeStatement
-			if hooks.statement then
-				nodeStatlist.Body[#nodeStatlist.Body + 1] = hooks.statement()
-			end
 		end
 
 		if tok:IsEof() then
