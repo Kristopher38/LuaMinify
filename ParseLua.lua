@@ -518,10 +518,16 @@ local function ParseLua(src, options, hooks)
 			error("No first line")
 		end
 	end
-	--
-	local VarUid = 0
-	-- No longer needed: handled in Scopes now local GlobalVarGetMap = {} 
-	local VarDigits = {'_', 'a', 'b', 'c', 'd'}
+	
+	local curScopeVars = {}
+	local function addVar(name)
+		curScopeVars[#curScopeVars+1] = name
+	end
+	local function flushScope(savedp)
+		for i = #curScopeVars, savedp+1, -1 do
+			curScopeVars[i] = nil
+		end
+	end
 
 	local ParseExpr
 	local ParseStatementList
@@ -538,10 +544,12 @@ local function ParseLua(src, options, hooks)
 		--arg list
 		local argList = {}
 		local isVarArg = false
+		local savedp = #curScopeVars
 		while not tok:ConsumeSymbol(')', tokenList) do
 			if tok:Is('Ident') then
 				local arg = tok:Get(tokenList).Data
 				argList[#argList+1] = arg
+				addVar(arg)
 				if not tok:ConsumeSymbol(',', tokenList) then
 					if tok:ConsumeSymbol(')', tokenList) then
 						break
@@ -551,6 +559,7 @@ local function ParseLua(src, options, hooks)
 				end
 			elseif tok:ConsumeSymbol('...', tokenList) then
 				isVarArg = true
+				addVar("...")
 				if not tok:ConsumeSymbol(')', tokenList) then
 					return false, GenerateError("`...` must be the last argument of a function.")
 				end
@@ -568,6 +577,7 @@ local function ParseLua(src, options, hooks)
 		if not tok:ConsumeKeyword('end', tokenList) then
 			return false, GenerateError("`end` expected after function body")
 		end
+		flushScope(savedp)
 		local nodeFunc = {}
 		nodeFunc.AstType   = 'Function'
 		nodeFunc.Arguments = argList
@@ -1058,7 +1068,9 @@ local function ParseLua(src, options, hooks)
 			local baseVarName = tok:Get(tokenList)
 			if tok:ConsumeSymbol('=', tokenList) then
 				--numeric for
+				local savedp = #curScopeVars
 				local forVar = baseVarName.Data
+				addVar(forVar)
 				--
 				local st, startEx = ParseExpr()
 				if not st then return false, startEx end
@@ -1081,6 +1093,7 @@ local function ParseLua(src, options, hooks)
 				if not tok:ConsumeKeyword('end', tokenList) then
 					return false, GenerateError("`end` expected")
 				end
+				flushScope(savedp)
 				--
 				local nodeFor = {}
 				nodeFor.AstType  = 'NumericForStatement'
@@ -1097,12 +1110,15 @@ local function ParseLua(src, options, hooks)
 			else
 				--generic for
 				--
+				local savedp = #curScopeVars
 				local varList = { baseVarName.Data }
+				addVar(baseVarName.Data)
 				while tok:ConsumeSymbol(',', tokenList) do
 					if not tok:Is('Ident') then
 						return false, GenerateError("for variable expected.")
 					end
 					varList[#varList+1] = tok:Get(tokenList).Data
+					addVar(varList[#varList+1])
 				end
 				if not tok:ConsumeKeyword('in', tokenList) then
 					return false, GenerateError("`in` expected.")
@@ -1124,6 +1140,7 @@ local function ParseLua(src, options, hooks)
 				if not tok:ConsumeKeyword('end', tokenList) then
 					return false, GenerateError("`end` expected.")
 				end
+				flushScope(savedp)
 				--
 				local nodeFor = {}
 				nodeFor.AstType      = 'GenericForStatement'
@@ -1212,10 +1229,13 @@ local function ParseLua(src, options, hooks)
 				if not tok:Is('Ident') then
 					return false, GenerateError("Function name expected")
 				end
+				local savedp = #curScopeVars
 				local name = tok:Get(tokenList).Data
+				addVar(name)
 				--
 				local st, func = ParseFunctionArgsAndBody(tokenList)
 				if not st then return false, func end
+				flushScope(savedp)
 				--
 				func.Name         = name
 				func.IsLocal      = true
@@ -1372,12 +1392,21 @@ local function ParseLua(src, options, hooks)
 		end
 
 		local st, nodeStatement
+		local savedp = #curScopeVars
 		while not statListCloseKeywords[tok:Peek().Data] and not tok:IsEof() do
 			st, nodeStatement = ParseStatement()
 			if not st then return false, nodeStatement end
 
-			nodeStatlist.Body[#nodeStatlist.Body + 1] = hooks.statement(nodeStatement)
+			nodeStatlist.Body[#nodeStatlist.Body + 1] = hooks.statement(nodeStatement, curScopeVars)
 			nodeStatlist.Body[#nodeStatlist.Body + 1] = nodeStatement
+
+			-- variables decleared as local aren't in scope when defining them
+			-- so they should be added to scope only after they're fully defined
+			if nodeStatement.AstType == "LocalStatement" then
+				for i = 1, #nodeStatement.LocalList do
+					addVar(nodeStatement.LocalList[i])
+				end
+			end
 		end
 
 		if tok:IsEof() then
@@ -1389,8 +1418,9 @@ local function ParseLua(src, options, hooks)
 			nodeStatlist.Body[#nodeStatlist.Body + 1] = nodeEof
 		end
 
-		--
-		--nodeStatlist.Body = stats
+		-- remove variables when leaving scope
+		flushScope(savedp)
+
 		return true, nodeStatlist
 	end
 
