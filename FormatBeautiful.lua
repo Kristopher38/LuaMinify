@@ -5,7 +5,7 @@
 --
 
 local parser = require"ParseLua"
-local ParseLua = parser.ParseLua
+local ParseLua = parser
 local util = require'Util'
 local lookupify = util.lookupify
 

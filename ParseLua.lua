@@ -1434,5 +1434,5 @@ local function ParseLua(src, options, hooks)
 	return st, main
 end
 
-return { LexLua = LexLua, ParseLua = ParseLua }
+return ParseLua
 	
