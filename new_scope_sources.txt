@@ -1,0 +1,6 @@
+This is a note to my future self about which Lua constructs (with their names as in LuaMinify code) create a new scope,
+and where in the tree structures to get names of these newly introduced variables (it might come useful during minification) 
+Function -> obj.Name (might be nil!)
+NumericForStatement -> obj.Variable
+GenericForStatement -> obj.VariableList (table)
+LocalStatement -> obj.LocalList (table)
