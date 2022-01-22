@@ -1,4 +1,6 @@
-local ParseLua = require("ParseLua")
+package.loaded.ParseLua = nil
+package.loaded.FormatBeautify = nil
+local parser = require("ParseLua")
 local inspect = require("inspect")
 local FormatBeautify = require("FormatBeautiful")
 local component = require("component")
@@ -41,7 +43,7 @@ end
 
 local function findNextBreakLine(fromLine)
     local i = fromLine + 1
-    while not _ENV.breakpoints[i] and i <= lastValidLine do
+    while not validLines[i] and i <= lastValidLine do
         i = i + 1
     end
     if i <= lastValidLine then
@@ -93,6 +95,8 @@ local debugCoro = coroutine.create(function()
             local line = findNextBreakLine(curLine)
             _ENV.breakpoints[line] = true
             _ENV.breakpoints[curLine] = false
+            print(string.format("Setting breakpoint at line %d", line))
+            coroutine.yield()
         elseif cmd == "c" or cmd == "continue" then
             _ENV.breakpoints[curLine] = false
             coroutine.yield()
@@ -101,6 +105,12 @@ local debugCoro = coroutine.create(function()
 end)
 
 while true do
+    local ok, err = coroutine.resume(debugCoro)
+    if not ok then
+        print(err)
+    end
+    if coroutine.status(debugCoro) == "dead" then break end
+    print("resuming program")
     local ok, line, vars, varnames = coroutine.resume(programCoro)
     if not ok then break end
 end
