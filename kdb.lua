@@ -76,10 +76,11 @@ end
 local argv = {...}
 local f
 if argv[1] then
-    f = io.open(argv[1])
+    filename = argv[1]
 else
     error("Missing argument: filename")
 end
+local f = io.open(filename)
 local lines = f:read("*all")
 local linesTable = split(lines, "\n")
 
@@ -142,6 +143,15 @@ local debugCoro = coroutine.create(function(curLine, vars, varNames)
                 print(val)
             else
                 print(string.format("No variable named \"%s\"", name))
+            end
+        elseif cmd == "tb" or cmd == "traceback" then
+            local level = tonumber(subs[2]) or 1
+            local level = 3
+            local info = debug.getinfo(programCoro, level, "nSltu")
+            while info do
+                print(string.format("%s:%d: in '%s'", filename, info.currentline, info.name or "main chunk"))
+                level = level + 1
+                info = debug.getinfo(programCoro, level, "nSltu")
             end
         else
             print(string.format("Unknown command: %s", cmd))
