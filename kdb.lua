@@ -30,7 +30,7 @@ hooks.statement = function(statement, visibleVars)
     local data = {}
     validLines[line] = true
     lastValidLine = line
-    data[#data+1] = string.format("if breakpoints[%d] then __krisDebug(%d,{", line, line)
+    data[#data+1] = string.format("if breakpoints[%d] or allbps then __krisDebug(%d,{", line, line)
     for i = 1, #visibleVars do
         data[#data+1] = string.format("%s,", visibleVars[i])
     end
@@ -68,6 +68,7 @@ local function findVarValue(vars, varNames, name)
 end
 
 _ENV.breakpoints = {}
+_ENV.allbps = false
 _ENV.__krisDebug = function(line, vars, varnames)
     coroutine.yield(line, vars, varnames)
 end
@@ -126,21 +127,11 @@ local debugCoro = coroutine.create(function(curLine, vars, varNames)
             end
         elseif cmd == "s" or cmd == "step" then
             --local count = subs[2] and tonumber(subs[2]) or 1
-            local savedBps = {}
-            for i = 1, lastValidLine do
-                if _ENV.breakpoints[i] then
-                    savedBps[i] = true
-                end
-                _ENV.breakpoints[i] = true
-            end
+            _ENV.allbps = true
             --print(string.format("Setting breakpoint at line %d", line))
             yieldToProgram()
             print(strip(linesTable[curLine]))
-            for i = 1, lastValidLine do
-                if not savedBps[i] then
-                    _ENV.breakpoints[i] = false
-                end
-            end
+            _ENV.allbps = false
         elseif cmd == "c" or cmd == "continue" then
             yieldToProgram()
             print(strip(linesTable[curLine]))
