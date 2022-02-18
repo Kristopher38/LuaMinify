@@ -1,6 +1,6 @@
 
 local parser = require'ParseLua'
-local ParseLua = parser.ParseLua
+local ParseLua = parser
 local util = require'Util'
 local lookupify = util.lookupify
 
@@ -23,14 +23,8 @@ local Symbols = lookupify{'+', '-', '*', '/', '^', '%', ',', '{', '}', '[', ']',
 
 local function Format_Mini(ast)
 	local formatStatlist, formatExpr;
-	local count = 0
 	--
 	local function joinStatementsSafe(a, b, sep)
-	--print(a, b)
-		if count > 150 then
-			count = 0
-			return a.."\n"..b
-		end
 		sep = sep or ' '
 		local aa, bb = a:sub(-1,-1), b:sub(1,1)
 		if UpperChars[aa] or LowerChars[aa] or aa == '_' then
@@ -72,17 +66,13 @@ local function Format_Mini(ast)
 		local skipParens = false
 		local out = ""
 		if expr.AstType == 'VarExpr' then
-			if expr.Variable then
-				out = out..expr.Variable.Name
-			else
-				out = out..expr.Name
-			end
+			out = out..expr.Name
 
 		elseif expr.AstType == 'NumberExpr' then
-			out = out..expr.Value.Data
+			out = out..expr.Value
 
 		elseif expr.AstType == 'StringExpr' then
-			out = out..expr.Value.Data
+			out = out..expr.Value
 
 		elseif expr.AstType == 'BooleanExpr' then
 			out = out..tostring(expr.Value)
@@ -129,20 +119,19 @@ local function Format_Mini(ast)
 
 		elseif expr.AstType == 'StringCallExpr' then
 			out = out..formatExpr(expr.Base)
-			out = out..expr.Arguments[1].Data
+			out = out..expr.Arguments[1]
 
 		elseif expr.AstType == 'IndexExpr' then
 			out = out..formatExpr(expr.Base).."["..formatExpr(expr.Index).."]"
 
 		elseif expr.AstType == 'MemberExpr' then
-			out = out..formatExpr(expr.Base)..expr.Indexer..expr.Ident.Data
+			out = out..formatExpr(expr.Base)..expr.Indexer..expr.Ident
 
 		elseif expr.AstType == 'Function' then
-			expr.Scope:ObfuscateVariables()
 			out = out.."function("
 			if #expr.Arguments > 0 then
 				for i = 1, #expr.Arguments do
-					out = out..expr.Arguments[i].Name
+					out = out..expr.Arguments[i]
 					if i ~= #expr.Arguments then
 						out = out..","
 					elseif expr.VarArg then
@@ -184,13 +173,14 @@ local function Format_Mini(ast)
 			out = out .. string.rep(')', expr.ParenCount or 0)
 			--print("", out)
 		end
-		count = count + #out
 		return --[[print(out) or]] out
 	end
 
 	local formatStatement = function(statement)
 		local out = ''
-		if statement.AstType == 'AssignmentStatement' then
+		if statement.AstType == 'VerbatimCode' then
+			out = statement.Data
+		elseif statement.AstType == 'AssignmentStatement' then
 			for i = 1, #statement.Lhs do
 				out = out..formatExpr(statement.Lhs[i])
 				if i ~= #statement.Lhs then
@@ -213,7 +203,7 @@ local function Format_Mini(ast)
 		elseif statement.AstType == 'LocalStatement' then
 			out = out.."local "
 			for i = 1, #statement.LocalList do
-				out = out..statement.LocalList[i].Name
+				out = out..statement.LocalList[i]
 				if i ~= #statement.LocalList then
 					out = out..","
 				end
@@ -275,20 +265,19 @@ local function Format_Mini(ast)
 			out = joinStatementsSafe(out, formatExpr(statement.Condition))
 
 		elseif statement.AstType == 'Function' then
-			statement.Scope:ObfuscateVariables()
 			if statement.IsLocal then
 				out = "local"
 			end
 			out = joinStatementsSafe(out, "function ")
 			if statement.IsLocal then
-				out = out..statement.Name.Name
+				out = out..statement.Name
 			else
 				out = out..formatExpr(statement.Name)
 			end
 			out = out.."("
 			if #statement.Arguments > 0 then
 				for i = 1, #statement.Arguments do
-					out = out..statement.Arguments[i].Name
+					out = out..statement.Arguments[i]
 					if i ~= #statement.Arguments then
 						out = out..","
 					elseif statement.VarArg then
@@ -304,10 +293,9 @@ local function Format_Mini(ast)
 			out = joinStatementsSafe(out, "end")
 
 		elseif statement.AstType == 'GenericForStatement' then
-			statement.Scope:ObfuscateVariables()
 			out = "for "
 			for i = 1, #statement.VariableList do
-				out = out..statement.VariableList[i].Name
+				out = out..statement.VariableList[i]
 				if i ~= #statement.VariableList then
 					out = out..","
 				end
@@ -324,9 +312,8 @@ local function Format_Mini(ast)
 			out = joinStatementsSafe(out, "end")
 
 		elseif statement.AstType == 'NumericForStatement' then
-			statement.Scope:ObfuscateVariables()
 			out = "for "
-			out = out..statement.Variable.Name.."="
+			out = out..statement.Variable.."="
 			out = out..formatExpr(statement.Start)..","..formatExpr(statement.End)
 			if statement.Step then
 				out = out..","..formatExpr(statement.Step)
@@ -345,20 +332,17 @@ local function Format_Mini(ast)
 		else
 			print("Unknown AST Type: " .. statement.AstType)
 		end
-		count = count + #out
 		return out
 	end
 
 	formatStatlist = function(statList)
 		local out = ''
-		statList.Scope:ObfuscateVariables()
 		for _, stat in pairs(statList.Body) do
 			out = joinStatementsSafe(out, formatStatement(stat), ';')
 		end
 		return out
 	end
 
-	ast.Scope:ObfuscateVariables()
 	return formatStatlist(ast)
 end
 
