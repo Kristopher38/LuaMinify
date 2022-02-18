@@ -18,6 +18,10 @@ local function split(str, sep)
     return t
 end
 
+local function strip(str)
+    return (string.gsub(string.gsub(str, "^%s+", ""), "%s+$", ""))
+end
+
 local validLines = {}
 local lastValidLine = 0
 local hooks = {}
@@ -41,18 +45,26 @@ hooks.statement = function(statement, visibleVars)
     }
 end
 
-local function findNextBreakLine(fromLine)
-    local i = fromLine + 1
+local function findNextBreakLine(validLines, onLine)
+    local i = onLine
     while not validLines[i] and i <= lastValidLine do
         i = i + 1
     end
     if i <= lastValidLine then
         return i
+    else
+        return lastValidLine
     end
 end
 
-local function printUI()
-
+local function findVarValue(vars, varNames, name)
+    assert(#vars == #varNames, "mismatched vars and varNames tables")
+    for i = 1, #varNames do
+        if varNames[i] == name then
+            return true, vars[i]
+        end
+    end
+    return false
 end
 
 _ENV.breakpoints = {}
@@ -68,6 +80,8 @@ else
     error("Missing argument: filename")
 end
 local lines = f:read("*all")
+local linesTable = split(lines, "\n")
+
 f:close()
 local ok, tree = parser(lines, {disableEmitLeadingWhite=true,
                                 disableEmitTokenList=true}, hooks)
@@ -77,41 +91,90 @@ end
 local beautified = FormatBeautify(tree)
 local loaded = load(beautified)
 
+local srcAnnotated = split(lines, "\n")
+for i = 1, #srcAnnotated do
+    srcAnnotated[i] = string.format("%d:\t%s", i, srcAnnotated[i])
+end
+print(table.concat(srcAnnotated, "\n"))
+
 local programCoro = coroutine.create(loaded)
-local debugCoro = coroutine.create(function()
-    local cmd
-    local curLine = 0
+local debugCoro = coroutine.create(function(curLine, vars, varNames)
+    local function yieldToProgram()
+        curLine, vars, varNames = coroutine.yield()
+    end
+    local cmd, lastInput
     while cmd ~= "exit" do
+        io.write("> ")
         local input = io.read()
+        if input == "" then
+            input = lastInput or ""
+        end
         local subs = split(input, "%s")
         
         cmd = subs[1]
         if cmd == "b" or cmd == "break" then
-            local line = findNextBreakLine(tonumber(subs[2]))
+            local line = findNextBreakLine(validLines, tonumber(subs[2]))
             _ENV.breakpoints[line] = true
             print(string.format("Setting breakpoint at line %d", line))
+        elseif cmd == "d" or cmd == "delete" then
+            local line = tonumber(subs[2])
+            if _ENV.breakpoints[line] then
+                print(string.format("Deleting breakpoint at line %d", line))
+                _ENV.breakpoints[line] = false
+            else
+                print(string.format("No breakpoint at line %d", line))
+            end
         elseif cmd == "s" or cmd == "step" then
             --local count = subs[2] and tonumber(subs[2]) or 1
-            local line = findNextBreakLine(curLine)
-            _ENV.breakpoints[line] = true
-            _ENV.breakpoints[curLine] = false
-            print(string.format("Setting breakpoint at line %d", line))
-            coroutine.yield()
+            local savedBps = {}
+            for i = 1, lastValidLine do
+                if _ENV.breakpoints[i] then
+                    savedBps[i] = true
+                end
+                _ENV.breakpoints[i] = true
+            end
+            --print(string.format("Setting breakpoint at line %d", line))
+            yieldToProgram()
+            print(strip(linesTable[curLine]))
+            for i = 1, lastValidLine do
+                if not savedBps[i] then
+                    _ENV.breakpoints[i] = false
+                end
+            end
         elseif cmd == "c" or cmd == "continue" then
-            _ENV.breakpoints[curLine] = false
-            coroutine.yield()
+            yieldToProgram()
+            print(strip(linesTable[curLine]))
+        elseif cmd == "p" or cmd == "print" then
+            local name = subs[2]
+            local found, val = findVarValue(vars, varNames, name)
+            if found then
+                print(val)
+            else
+                print(string.format("No variable named \"%s\"", name))
+            end
+        else
+            print(string.format("Unknown command: %s", cmd))
         end
+        lastInput = input
     end
 end)
 
+local ok, err
+local line, vars, varnames = 1, {}, {}
 while true do
-    local ok, err = coroutine.resume(debugCoro)
+    ok, err = coroutine.resume(debugCoro, line, vars, varnames)
     if not ok then
         print(err)
     end
     if coroutine.status(debugCoro) == "dead" then break end
-    print("resuming program")
-    local ok, line, vars, varnames = coroutine.resume(programCoro)
-    if not ok then break end
+    ok, line, vars, varnames = coroutine.resume(programCoro)
+    if not ok then
+        print("program stopped unexpectedly")
+        break
+    end
+    if coroutine.status(programCoro) == "dead" then
+        print("program finished execution")
+        break
+    end
 end
     
