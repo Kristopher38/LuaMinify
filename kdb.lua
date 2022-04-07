@@ -22,17 +22,22 @@ local function strip(str)
     return (string.gsub(string.gsub(str, "^%s+", ""), "%s+$", ""))
 end
 
+local filename
 local returnBreakpoints = {}
 local funcBeginBreakpoints = {}
 local validLines = {}
 local lastValidLine = 0
 local hooks = {}
-hooks.statement = function(statement, visibleVars)
+local bpid = 1
+local lineBpMap = {}
+hooks.statement = function(statement, visibleVars, parent, isFirst, isLast)
     local line = statement.FirstLine
     local data = {}
     validLines[line] = true
     lastValidLine = line
-    data[#data+1] = string.format("if breakpoints[%d] or allbps then __krisDebug(%d,{", line, line)
+    data[#data+1] = "if breakpoints[%d] or allbps then __krisDebug(%d,{"
+    lineBpMap[line] = bpid
+    
     for i = 1, #visibleVars do
         data[#data+1] = string.format("%s,", visibleVars[i])
     end
@@ -43,26 +48,29 @@ hooks.statement = function(statement, visibleVars)
     data[#data+1] = "}) end"
 
     if statement.AstType == "ReturnStatement" then
-        returnBreakpoints[#returnBreakpoints+1] = line
+        returnBreakpoints[#returnBreakpoints+1] = bpid
     end
 
-    return {
+    if parent == "function" and isFirst then
+        funcBeginBreakpoints[#funcBeginBreakpoints+1] = bpid
+    end
+
+    local stmtPrefix = {
         AstType = "VerbatimCode",
-        Data = table.concat(data)
-    }, statement
-end
+        Data = string.format(table.concat(data), bpid, line)
+    }
 
-hooks.func = function(func, visibleVars)
-    -- we consider last statement of a function to be a return breakpoint
-    local lastStmt = func.Body.Body[#func.Body.Body]
-    if lastStmt and lastStmt.AstType ~= "ReturnStatement" then
-        returnBreakpoints[#returnBreakpoints+1] = lastStmt.FirstLine
+    bpid = bpid + 1
+    local stmtSuffix
+    if parent == "function" and isLast and statement.AstType ~= "ReturnStatement" then
+        stmtSuffix = {
+            AstType = "VerbatimCode",
+            Data = string.format(table.concat(data), bpid, line)
+        }
+        bpid = bpid + 1
     end
-    -- first statement can be also function's last statement but it doesn't matter
-    local firstStmt = func.Body.Body[2]
-    if firstStmt then
-        funcBeginBreakpoints[#funcBeginBreakpoints+1] = firstStmt.FirstLine
-    end
+
+    return stmtPrefix, statement, stmtSuffix
 end
 
 local function findNextBreakLine(validLines, onLine)
@@ -113,6 +121,12 @@ end
 local beautified = FormatBeautify(tree)
 local loaded = load(beautified)
 
+if argv[2] then
+    local out = io.open(argv[2], "w")
+    out:write(beautified)
+    out:close()
+end
+
 local srcAnnotated = split(lines, "\n")
 for i = 1, #srcAnnotated do
     srcAnnotated[i] = string.format("%d:\t%s", i, srcAnnotated[i])
@@ -136,13 +150,13 @@ local debugCoro = coroutine.create(function(curLine, vars, varNames)
         cmd = subs[1]
         if cmd == "b" or cmd == "break" then
             local line = findNextBreakLine(validLines, tonumber(subs[2]))
-            _ENV.breakpoints[line] = true
+            _ENV.breakpoints[lineBpMap[line]] = true
             print(string.format("Setting breakpoint at line %d", line))
         elseif cmd == "d" or cmd == "delete" then
             local line = tonumber(subs[2])
-            if _ENV.breakpoints[line] then
+            if _ENV.breakpoints[lineBpMap[line]] then
                 print(string.format("Deleting breakpoint at line %d", line))
-                _ENV.breakpoints[line] = false
+                _ENV.breakpoints[lineBpMap[line]] = false
             else
                 print(string.format("No breakpoint at line %d", line))
             end

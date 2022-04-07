@@ -570,7 +570,7 @@ local function ParseLua(src, options, hooks)
 		end
 
 		--body
-		local st, body = ParseStatementList()
+		local st, body = ParseStatementList('function')
 		if not st then return false, body end
 
 		--end
@@ -987,7 +987,7 @@ local function ParseLua(src, options, hooks)
 				if not tok:ConsumeKeyword('then', tokenList) then
 					return false, GenerateError("`then` expected.")
 				end
-				local st, nodeBody = ParseStatementList()
+				local st, nodeBody = ParseStatementList('if')
 				if not st then return false, nodeBody end
 				nodeIfStat.Clauses[#nodeIfStat.Clauses+1] = {
 					Condition = nodeCond;
@@ -997,7 +997,7 @@ local function ParseLua(src, options, hooks)
 
 			--else clause
 			if tok:ConsumeKeyword('else', tokenList) then
-				local st, nodeBody = ParseStatementList()
+				local st, nodeBody = ParseStatementList('else')
 				if not st then return false, nodeBody end
 				nodeIfStat.Clauses[#nodeIfStat.Clauses+1] = {
 					Body = nodeBody;
@@ -1029,7 +1029,7 @@ local function ParseLua(src, options, hooks)
 			end
 
 			--body
-			local st, nodeBody = ParseStatementList()
+			local st, nodeBody = ParseStatementList('while')
 			if not st then return false, nodeBody end
 
 			--end
@@ -1047,7 +1047,7 @@ local function ParseLua(src, options, hooks)
 
 		elseif tok:ConsumeKeyword('do', tokenList) then
 			--do block
-			local st, nodeBlock = ParseStatementList()
+			local st, nodeBlock = ParseStatementList('do')
 			if not st then return false, nodeBlock end
 			if not tok:ConsumeKeyword('end', tokenList) then
 				return false, GenerateError("`end` expected.")
@@ -1090,7 +1090,7 @@ local function ParseLua(src, options, hooks)
 					return false, GenerateError("`do` expected")
 				end
 				--
-				local st, body = ParseStatementList()
+				local st, body = ParseStatementList('nfor')
 				if not st then return false, body end
 				if not tok:ConsumeKeyword('end', tokenList) then
 					return false, GenerateError("`end` expected")
@@ -1137,7 +1137,7 @@ local function ParseLua(src, options, hooks)
 				if not tok:ConsumeKeyword('do', tokenList) then
 					return false, GenerateError("`do` expected.")
 				end
-				local st, body = ParseStatementList()
+				local st, body = ParseStatementList('gfor')
 				if not st then return false, body end
 				if not tok:ConsumeKeyword('end', tokenList) then
 					return false, GenerateError("`end` expected.")
@@ -1157,7 +1157,7 @@ local function ParseLua(src, options, hooks)
 			end
 
 		elseif tok:ConsumeKeyword('repeat', tokenList) then
-			local st, body = ParseStatementList()
+			local st, body = ParseStatementList('repeat')
 			if not st then return false, body end
 			--
 			if not tok:ConsumeKeyword('until', tokenList) then
@@ -1385,7 +1385,7 @@ local function ParseLua(src, options, hooks)
 
 	local statListCloseKeywords = lookupify{'end', 'else', 'elseif', 'until'}
 
-	ParseStatementList = function()
+	ParseStatementList = function(parent)
 		local nodeStatlist   = {}
 		nodeStatlist.AstType = 'Statlist'
 		nodeStatlist.Body    = { }
@@ -1395,13 +1395,16 @@ local function ParseLua(src, options, hooks)
 
 		local st, nodeStatement
 		local savedp = #curScopeVars
+		local isFirst = true
 		while not statListCloseKeywords[tok:Peek().Data] and not tok:IsEof() do
 			st, nodeStatement = ParseStatement()
 			if not st then return false, nodeStatement end
-
-			for _, stmt in ipairs(table.pack(hooks.statement(nodeStatement, curScopeVars))) do
+ 
+			local isLast = statListCloseKeywords[tok:Peek().Data] or tok:IsEof()
+			for _, stmt in ipairs(table.pack(hooks.statement(nodeStatement, curScopeVars, parent, isFirst, isLast))) do
 				nodeStatlist.Body[#nodeStatlist.Body + 1] = stmt
 			end
+			isFirst = false
 
 			-- variables decleared as local aren't in scope when defining them
 			-- so they should be added to scope only after they're fully defined
@@ -1429,7 +1432,7 @@ local function ParseLua(src, options, hooks)
 
 
 	local function mainfunc()
-		return ParseStatementList()
+		return ParseStatementList('main')
 	end
 
 	local st, main = mainfunc()
