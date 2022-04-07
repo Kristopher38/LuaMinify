@@ -577,7 +577,6 @@ local function ParseLua(src, options, hooks)
 		if not tok:ConsumeKeyword('end', tokenList) then
 			return false, GenerateError("`end` expected after function body")
 		end
-		flushScope(savedp)
 		local nodeFunc = {}
 		nodeFunc.AstType   = 'Function'
 		nodeFunc.Arguments = argList
@@ -586,7 +585,10 @@ local function ParseLua(src, options, hooks)
 		if not options.disableEmitTokenList then
 			nodeFunc.Tokens    = tokenList
 		end
-		--
+		if hooks.func then
+			hooks.func(nodeFunc, curScopeVars)
+		end
+		flushScope(savedp)
 		return true, nodeFunc
 	end
 
@@ -1397,8 +1399,9 @@ local function ParseLua(src, options, hooks)
 			st, nodeStatement = ParseStatement()
 			if not st then return false, nodeStatement end
 
-			nodeStatlist.Body[#nodeStatlist.Body + 1] = hooks.statement(nodeStatement, curScopeVars)
-			nodeStatlist.Body[#nodeStatlist.Body + 1] = nodeStatement
+			for _, stmt in ipairs(table.pack(hooks.statement(nodeStatement, curScopeVars))) do
+				nodeStatlist.Body[#nodeStatlist.Body + 1] = stmt
+			end
 
 			-- variables decleared as local aren't in scope when defining them
 			-- so they should be added to scope only after they're fully defined

@@ -22,6 +22,8 @@ local function strip(str)
     return (string.gsub(string.gsub(str, "^%s+", ""), "%s+$", ""))
 end
 
+local returnBreakpoints = {}
+local funcBeginBreakpoints = {}
 local validLines = {}
 local lastValidLine = 0
 local hooks = {}
@@ -39,10 +41,28 @@ hooks.statement = function(statement, visibleVars)
         data[#data+1] = string.format("\"%s\",", visibleVars[i])
     end
     data[#data+1] = "}) end"
+
+    if statement.AstType == "ReturnStatement" then
+        returnBreakpoints[#returnBreakpoints+1] = line
+    end
+
     return {
         AstType = "VerbatimCode",
         Data = table.concat(data)
-    }
+    }, statement
+end
+
+hooks.func = function(func, visibleVars)
+    -- we consider last statement of a function to be a return breakpoint
+    local lastStmt = func.Body.Body[#func.Body.Body]
+    if lastStmt and lastStmt.AstType ~= "ReturnStatement" then
+        returnBreakpoints[#returnBreakpoints+1] = lastStmt.FirstLine
+    end
+    -- first statement can be also function's last statement but it doesn't matter
+    local firstStmt = func.Body.Body[2]
+    if firstStmt then
+        funcBeginBreakpoints[#funcBeginBreakpoints+1] = firstStmt.FirstLine
+    end
 end
 
 local function findNextBreakLine(validLines, onLine)
@@ -152,6 +172,14 @@ local debugCoro = coroutine.create(function(curLine, vars, varNames)
                 print(string.format("%s:%d: in '%s'", filename, info.currentline, info.name or "main chunk"))
                 level = level + 1
                 info = debug.getinfo(programCoro, level, "nSltu")
+            end
+        elseif cmd == "rl" then
+            for i,v in ipairs(returnBreakpoints) do
+                print(i,v)
+            end
+        elseif cmd == "sl" then
+            for i,v in ipairs(funcBeginBreakpoints) do
+                print(i,v)
             end
         else
             print(string.format("Unknown command: %s", cmd))
