@@ -68,7 +68,9 @@ local function Format_Beautify(ast)
 
 	formatExpr = function(expr)
 		local out = string.rep('(', expr.ParenCount or 0)
-		if expr.AstType == 'VarExpr' then
+		if expr.AstType == 'VerbatimCode' then
+			out = out .. expr.Data
+		elseif expr.AstType == 'VarExpr' then
 			out = out .. expr.Name
 
 		elseif expr.AstType == 'NumberExpr' then
