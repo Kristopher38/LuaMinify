@@ -285,11 +285,13 @@ local debugCoro = coroutine.create(function(curLine, vars)
         curLine, vars = coroutine.yield()
     end
     local cmd, lastInput
-    while cmd ~= "exit" do
+    while true do
         io.write("> ")
         local input = io.read()
         if input == "" then
             input = lastInput or ""
+        elseif not input then
+            return
         end
         local subs = split(input, "%s")
         
@@ -341,6 +343,8 @@ local debugCoro = coroutine.create(function(curLine, vars)
             for i,v in ipairs(funcBeginBreakpoints) do
                 print(i,v)
             end
+        elseif cmd == "exit" then
+            return
         else
             print(string.format("Unknown command: %s", cmd))
         end
