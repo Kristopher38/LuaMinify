@@ -66,6 +66,7 @@ local hooks = {}
 local bpid = 1
 local lineBpMap = {}
 local symtab = "__SYM"
+local stacktab = "__STK"
 hooks.statement = function(statement, visibleVars, innerVarsIdx, parent, isFirst, isLast)
     local line = statement.FirstLine
     local ifBreakpoint = "if breakpoints[%d] or allbps then __krisDebug(%d,%s) end"
@@ -73,8 +74,13 @@ hooks.statement = function(statement, visibleVars, innerVarsIdx, parent, isFirst
     lastValidLine = line
     lineBpMap[line] = bpid
 
+    local stackPopBeforeRet
     if statement.AstType == "ReturnStatement" then
         returnBreakpoints[#returnBreakpoints+1] = bpid
+        stackPopBeforeRet = {
+            AstType = "VerbatimCode",
+            Data = string.format("%s[#%s] = nil", stacktab, stacktab)
+        }
     end
 
     local setupArgs
@@ -92,6 +98,14 @@ hooks.statement = function(statement, visibleVars, innerVarsIdx, parent, isFirst
         }
     end
 
+    local stackPush
+    if (parent.AstType == "Function" or parent.AstType == "Main") and isFirst then
+        stackPush = {
+            AstType = "VerbatimCode",
+            Data = string.format("%s[#%s+1] = %s", stacktab, stacktab, symtab)
+        }
+    end
+
     local stmtPrefix = {
         AstType = "VerbatimCode",
         Data = string.format(ifBreakpoint, bpid, line, symtab)
@@ -99,10 +113,15 @@ hooks.statement = function(statement, visibleVars, innerVarsIdx, parent, isFirst
 
     bpid = bpid + 1
     local stmtSuffix
+    local stackPopAfterRet
     if parent.AstType == "Function" and isLast and statement.AstType ~= "ReturnStatement" then
         stmtSuffix = {
             AstType = "VerbatimCode",
             Data = string.format(ifBreakpoint, bpid, line, symtab)
+        }
+        stackPopAfterRet = {
+            AstType = "VerbatimCode",
+            Data = string.format("%s[#%s] = nil", stacktab, stacktab)
         }
         bpid = bpid + 1
     end
@@ -194,7 +213,7 @@ hooks.statement = function(statement, visibleVars, innerVarsIdx, parent, isFirst
         statement.IsLocal = false
     end
 
-    return packSkipNils(enterMain, enterScope, setupArgs, enterFor, stmtPrefix, localDecls, statement, stmtSuffix)
+    return packSkipNils(enterMain, enterScope, stackPush, setupArgs, enterFor, stmtPrefix, localDecls, stackPopBeforeRet, statement, stmtSuffix, stackPopAfterRet)
 end
 
 hooks.varexpr = function(id, parent)
@@ -213,20 +232,12 @@ local function findNextBreakLine(validLines, onLine)
     end
 end
 
-local function findVarValue(vars, name)
-    for k, v in pairs(vars) do
-        if k == name then
-            return true, v
-        end
-    end
-    return false
-end
-
 _ENV.breakpoints = {}
 _ENV.allbps = false
 _ENV.__krisDebug = function(line, vars)
     coroutine.yield(line, vars)
 end
+_ENV.__STK = {}
 
 local argv = {...}
 if argv[1] then
@@ -247,10 +258,6 @@ if not ok then
     error(string.format("Error parsing %s: %s", argv[1], tree))
 end
 local beautified = FormatBeautify(tree)
-local loaded, err = load(beautified)
-if not loaded then
-    error(err)
-end
 
 if argv[2] then
     local out = io.open(argv[2], "w")
@@ -259,6 +266,11 @@ if argv[2] then
     end
     out:write(beautified)
     out:close()
+end
+
+local loaded, err = load(beautified)
+if not loaded then
+    error(err)
 end
 
 local srcAnnotated = split(lines, "\n")
@@ -306,8 +318,8 @@ local debugCoro = coroutine.create(function(curLine, vars)
             print(strip(linesTable[curLine]))
         elseif cmd == "p" or cmd == "print" then
             local name = subs[2]
-            local found, val = findVarValue(vars, name)
-            if found then
+            local val = vars[name]
+            if val or vars["."..name] then
                 print(val)
             else
                 print(string.format("No variable named \"%s\"", name))
