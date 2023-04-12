@@ -326,14 +326,26 @@ local debugCoro = coroutine.create(function(curLine, vars)
             else
                 print(string.format("No variable named \"%s\"", name))
             end
-        elseif cmd == "tb" or cmd == "traceback" then
-            local level = tonumber(subs[2]) or 1
+        elseif cmd == "bt" or cmd == "backtrace" or cmd == "where" then
+            local full = subs[2] == "full"
+            local stklvl = #_ENV.__STK
             local level = 3
             local info = debug.getinfo(programCoro, level, "nSltu")
             while info do
                 print(string.format("%s:%d: in '%s'", filename, info.currentline, info.name or "main chunk"))
+                if full then
+                    for k, v in pairs(_ENV.__STK[stklvl]) do
+                        print(k, v)
+                    end
+                end
                 level = level + 1
+                stklvl = stklvl - 1
                 info = debug.getinfo(programCoro, level, "nSltu")
+            end
+        elseif cmd == "l" or cmd == "list" then
+            local start = subs[2] and tonumber(subs[2]) or curLine
+            for i = math.max(1, start - 2), math.min(start + 2, #srcAnnotated) do
+                print(srcAnnotated[i])
             end
         elseif cmd == "rl" then
             for i,v in ipairs(returnBreakpoints) do
