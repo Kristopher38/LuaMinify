@@ -98,14 +98,6 @@ hooks.statement = function(statement, visibleVars, innerVarsIdx, parent, isFirst
         }
     end
 
-    local stackPush
-    if (parent.AstType == "Function" or parent.AstType == "Main") and isFirst then
-        stackPush = {
-            AstType = "VerbatimCode",
-            Data = string.format("%s[#%s+1] = %s", stacktab, stacktab, symtab)
-        }
-    end
-
     local stmtPrefix = {
         AstType = "VerbatimCode",
         Data = string.format(ifBreakpoint, bpid, line, symtab)
@@ -152,7 +144,9 @@ hooks.statement = function(statement, visibleVars, innerVarsIdx, parent, isFirst
     end
 
     local enterScope
+    local stackPush
     if isFirst then
+        local isFuncTop = parent.AstType == "Function" or parent.AstType == "Main"
         local outer
         if parent.AstType == "Main" then
             outer = "_ENV"
@@ -161,7 +155,14 @@ hooks.statement = function(statement, visibleVars, innerVarsIdx, parent, isFirst
         end
         enterScope = {
             AstType = "VerbatimCode",
-            Data = string.format("local %s = setmetatable({}, {outer = %s, __index = __index, __newindex = __newindex})", symtab, outer)
+            Data = string.format(
+                "local %s = setmetatable({}, {functop = %s, outer = %s, __index = __index, __newindex = __newindex})",
+                symtab, tostring(isFuncTop), outer
+            )
+        }
+        stackPush = {
+            AstType = "VerbatimCode",
+            Data = string.format("%s[#%s+%d] = %s", stacktab, stacktab, isFuncTop and 1 or 0, symtab)
         }
     end
 
@@ -334,7 +335,14 @@ local debugCoro = coroutine.create(function(curLine, vars)
             while info do
                 print(string.format("%s:%d: in '%s'", filename, info.currentline, info.name or "main chunk"))
                 if full then
-                    for k, v in pairs(_ENV.__STK[stklvl]) do
+                    local locals = _ENV.__STK[stklvl]
+                    while not getmetatable(locals).functop do
+                        for k, v in pairs(locals) do
+                            print(k, v)
+                        end
+                        locals = getmetatable(locals).outer
+                    end
+                    for k, v in pairs(locals) do
                         print(k, v)
                     end
                 end
