@@ -223,6 +223,8 @@ hooks.varexpr = function(id, parent)
     return {AstType = "VerbatimCode", Data = string.format("%s.%s", symtab, id.Name), FirstLine = id.FirstLine}
 end
 
+local yieldToProgram
+
 local function findNextBreakLine(validLines, onLine)
     local i = onLine
     while not validLines[i] and i <= lastValidLine do
@@ -249,6 +251,12 @@ local function curStackLevel(coro)
         info = debug.getinfo(coro, level, "nSltu")
     end
     return level - 1
+end
+
+local function singleStep()
+    _ENV.allbps = true
+    yieldToProgram()
+    _ENV.allbps = false
 end
 
 _ENV.breakpoints = {}
@@ -300,7 +308,7 @@ print(table.concat(srcAnnotated, "\n"))
 
 local programCoro = coroutine.create(loaded)
 local debugCoro = coroutine.create(function(curLine, vars)
-    local function yieldToProgram()
+    yieldToProgram = function()
         curLine, vars = coroutine.yield()
     end
     local cmd, lastInput
@@ -328,12 +336,8 @@ local debugCoro = coroutine.create(function(curLine, vars)
                 print(string.format("No breakpoint at line %d", line))
             end
         elseif cmd == "s" or cmd == "step" then
-            --local count = subs[2] and tonumber(subs[2]) or 1
-            _ENV.allbps = true
-            --print(string.format("Setting breakpoint at line %d", line))
-            yieldToProgram()
+            singleStep()
             print(strip(linesTable[curLine]))
-            _ENV.allbps = false
         elseif cmd == "c" or cmd == "continue" then
             yieldToProgram()
             print(strip(linesTable[curLine]))
@@ -377,11 +381,11 @@ local debugCoro = coroutine.create(function(curLine, vars)
             local stklvl = curStackLevel(programCoro)
             local exitStklvl = stklvl - 1
             setBreakpoints(returnBreakpoints, true)
+            singleStep() -- handle special case when we're already at the return breakpoint
+            stklvl = curStackLevel(programCoro)
             while stklvl > exitStklvl do
                 yieldToProgram()
-                _ENV.allbps = true
-                yieldToProgram()
-                _ENV.allbps = false
+                singleStep()
                 stklvl = curStackLevel(programCoro)
             end
             setBreakpoints(returnBreakpoints, false)
