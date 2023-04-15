@@ -223,6 +223,7 @@ hooks.varexpr = function(id, parent)
     return {AstType = "VerbatimCode", Data = string.format("%s.%s", symtab, id.Name), FirstLine = id.FirstLine}
 end
 
+local sandbox = setmetatable({}, {__index = _ENV})
 local yieldToProgram
 
 local function findNextBreakLine(validLines, onLine)
@@ -239,7 +240,7 @@ end
 
 local function setBreakpoints(ids, state)
     for _, bpid in ipairs(ids) do
-        _ENV.breakpoints[bpid] = state
+        sandbox.breakpoints[bpid] = state
     end
 end
 
@@ -254,17 +255,17 @@ local function curStackLevel(coro)
 end
 
 local function singleStep()
-    _ENV.allbps = true
+    sandbox.allbps = true
     yieldToProgram()
-    _ENV.allbps = false
+    sandbox.allbps = false
 end
 
-_ENV.breakpoints = {}
-_ENV.allbps = false
-_ENV.__krisDebug = function(line, vars)
+sandbox.breakpoints = {}
+sandbox.allbps = false
+sandbox.__krisDebug = function(line, vars)
     coroutine.yield(line, vars)
 end
-_ENV.__STK = {}
+sandbox.__STK = {}
 
 local argv = {...}
 if argv[1] then
@@ -295,7 +296,7 @@ if argv[2] then
     out:close()
 end
 
-local loaded, err = load(beautified)
+local loaded, err = load(beautified, "main chunk", "t", sandbox)
 if not loaded then
     error(err)
 end
@@ -325,13 +326,13 @@ local debugCoro = coroutine.create(function(curLine, vars)
         cmd = subs[1]
         if cmd == "b" or cmd == "break" then
             local line = findNextBreakLine(validLines, tonumber(subs[2]))
-            _ENV.breakpoints[lineBpMap[line]] = true
+            sandbox.breakpoints[lineBpMap[line]] = true
             print(string.format("Setting breakpoint at line %d", line))
         elseif cmd == "d" or cmd == "delete" then
             local line = tonumber(subs[2])
-            if _ENV.breakpoints[lineBpMap[line]] then
+            if sandbox.breakpoints[lineBpMap[line]] then
                 print(string.format("Deleting breakpoint at line %d", line))
-                _ENV.breakpoints[lineBpMap[line]] = false
+                sandbox.breakpoints[lineBpMap[line]] = false
             else
                 print(string.format("No breakpoint at line %d", line))
             end
@@ -351,13 +352,13 @@ local debugCoro = coroutine.create(function(curLine, vars)
             end
         elseif cmd == "bt" or cmd == "backtrace" or cmd == "where" then
             local full = subs[2] == "full"
-            local stklvl = #_ENV.__STK
+            local stklvl = #sandbox.__STK
             local level = 3
             local info = debug.getinfo(programCoro, level, "nSltu")
             while info do
                 print(string.format("%s:%d: in '%s'", filename, info.currentline, info.name or "main chunk"))
                 if full then
-                    local locals = _ENV.__STK[stklvl]
+                    local locals = sandbox.__STK[stklvl]
                     while not getmetatable(locals).functop do
                         for k, v in pairs(locals) do
                             print(k, v)
