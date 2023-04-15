@@ -233,6 +233,22 @@ local function findNextBreakLine(validLines, onLine)
     end
 end
 
+local function setBreakpoints(ids, state)
+    for _, bpid in ipairs(ids) do
+        _ENV.breakpoints[bpid] = state
+    end
+end
+
+local function curStackLevel(coro)
+    local level = 3
+    local info = debug.getinfo(coro, level, "nSltu")
+    while info do
+        level = level + 1
+        info = debug.getinfo(coro, level, "nSltu")
+    end
+    return level - 1
+end
+
 _ENV.breakpoints = {}
 _ENV.allbps = false
 _ENV.__krisDebug = function(line, vars)
@@ -355,6 +371,19 @@ local debugCoro = coroutine.create(function(curLine, vars)
             for i = math.max(1, start - 2), math.min(start + 2, #srcAnnotated) do
                 print(srcAnnotated[i])
             end
+        elseif cmd == "fin" or cmd == "finish" then
+            local stklvl = curStackLevel(programCoro)
+            local exitStklvl = stklvl - 1
+            setBreakpoints(returnBreakpoints, true)
+            while stklvl > exitStklvl do
+                yieldToProgram()
+                _ENV.allbps = true
+                yieldToProgram()
+                _ENV.allbps = false
+                stklvl = curStackLevel(programCoro)
+            end
+            setBreakpoints(returnBreakpoints, false)
+            print(strip(linesTable[curLine]))
         elseif cmd == "rl" then
             for i,v in ipairs(returnBreakpoints) do
                 print(i,v)
