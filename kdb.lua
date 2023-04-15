@@ -100,7 +100,8 @@ hooks.statement = function(statement, visibleVars, innerVarsIdx, parent, isFirst
 
     local stmtPrefix = {
         AstType = "VerbatimCode",
-        Data = string.format(ifBreakpoint, bpid, line, symtab)
+        Data = string.format(ifBreakpoint, bpid, line, symtab),
+        FirstLine = line
     }
 
     bpid = bpid + 1
@@ -109,7 +110,8 @@ hooks.statement = function(statement, visibleVars, innerVarsIdx, parent, isFirst
     if parent.AstType == "Function" and isLast and statement.AstType ~= "ReturnStatement" then
         stmtSuffix = {
             AstType = "VerbatimCode",
-            Data = string.format(ifBreakpoint, bpid, line, symtab)
+            Data = string.format(ifBreakpoint, bpid, line, symtab),
+            FirstLine = line
         }
         stackPopAfterRet = {
             AstType = "VerbatimCode",

@@ -24,7 +24,7 @@ local function Format_Beautify(ast)
 	local curLine = 1
 	
 	local function getIndentation(stmt)
-		if stmt.AstType ~= "VerbatimCode" and curLine < stmt.FirstLine then
+		if stmt.FirstLine and curLine < stmt.FirstLine then
 			local toCatchUp = stmt.FirstLine - curLine
 			curLine = curLine + toCatchUp
 			--return string.format("%s%d:    ", string.rep("\n", toCatchUp), curLine)
