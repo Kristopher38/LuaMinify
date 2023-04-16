@@ -108,6 +108,7 @@ hooks.statement = function(statement, visibleVars, innerVarsIdx, parent, isFirst
     local stmtSuffix
     local stackPopAfterRet
     if parent.AstType == "Function" and isLast and statement.AstType ~= "ReturnStatement" then
+        returnBreakpoints[#returnBreakpoints+1] = bpid
         stmtSuffix = {
             AstType = "VerbatimCode",
             Data = string.format(ifBreakpoint, bpid, line, symtab),
@@ -224,7 +225,6 @@ hooks.varexpr = function(id, parent)
 end
 
 local sandbox = setmetatable({}, {__index = _ENV})
-local yieldToProgram
 
 local function findNextBreakLine(validLines, onLine)
     local i = onLine
@@ -254,10 +254,13 @@ local function curStackLevel(coro)
     return level - 1
 end
 
-local function singleStep()
-    sandbox.allbps = true
-    yieldToProgram()
-    sandbox.allbps = false
+local function contains(t, val)
+    for _, v in ipairs(t) do
+        if v == val then
+            return true
+        end
+    end
+    return false
 end
 
 sandbox.breakpoints = {}
@@ -309,9 +312,31 @@ print(table.concat(srcAnnotated, "\n"))
 
 local programCoro = coroutine.create(loaded)
 local debugCoro = coroutine.create(function(curLine, vars)
-    yieldToProgram = function()
+    local yieldToProgram = function()
         curLine, vars = coroutine.yield()
     end
+    local printCurLine = function()
+        print(strip(linesTable[curLine]))
+    end
+    local function singleStep()
+        sandbox.allbps = true
+        yieldToProgram()
+        sandbox.allbps = false
+    end
+    -- run function in current stack frame until its return
+    local function finish(coro)
+        local exitStklvl = curStackLevel(programCoro) - 1
+        setBreakpoints(returnBreakpoints, true)
+        singleStep() -- handle special case when we're already at the return breakpoint
+        while exitStklvl < curStackLevel(programCoro) do
+            if not contains(returnBreakpoints, lineBpMap[curLine]) then
+                yieldToProgram()
+            end
+            singleStep()
+        end
+        setBreakpoints(returnBreakpoints, false)
+    end
+
     local cmd, lastInput
     while true do
         io.write("> ")
@@ -338,10 +363,17 @@ local debugCoro = coroutine.create(function(curLine, vars)
             end
         elseif cmd == "s" or cmd == "step" then
             singleStep()
-            print(strip(linesTable[curLine]))
+            printCurLine()
+        elseif cmd == "n" or cmd == "next" then
+            local stklvl = curStackLevel(programCoro)
+            singleStep()
+            if stklvl < curStackLevel(programCoro) then
+                finish()
+            end
+            printCurLine()
         elseif cmd == "c" or cmd == "continue" then
             yieldToProgram()
-            print(strip(linesTable[curLine]))
+            printCurLine()
         elseif cmd == "p" or cmd == "print" then
             local name = subs[2]
             local val = vars[name]
@@ -379,18 +411,8 @@ local debugCoro = coroutine.create(function(curLine, vars)
                 print(srcAnnotated[i])
             end
         elseif cmd == "fin" or cmd == "finish" then
-            local stklvl = curStackLevel(programCoro)
-            local exitStklvl = stklvl - 1
-            setBreakpoints(returnBreakpoints, true)
-            singleStep() -- handle special case when we're already at the return breakpoint
-            stklvl = curStackLevel(programCoro)
-            while stklvl > exitStklvl do
-                yieldToProgram()
-                singleStep()
-                stklvl = curStackLevel(programCoro)
-            end
-            setBreakpoints(returnBreakpoints, false)
-            print(strip(linesTable[curLine]))
+            finish()
+            printCurLine()
         elseif cmd == "rl" then
             for i,v in ipairs(returnBreakpoints) do
                 print(i,v)
@@ -398,6 +420,10 @@ local debugCoro = coroutine.create(function(curLine, vars)
         elseif cmd == "sl" then
             for i,v in ipairs(funcBeginBreakpoints) do
                 print(i,v)
+            end
+        elseif cmd == "lbp" then
+            for k,v in pairs(lineBpMap) do
+                print(k,v)
             end
         elseif cmd == "exit" then
             return
