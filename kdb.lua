@@ -6,26 +6,34 @@ local FormatBeautify = require("FormatBeautiful")
 
 local header =
 [[
-local function __index(t, k)
-    local v = rawget(t, k)
-    if v ~= nil then
-        return v
-    elseif rawget(t, '.'..k) then
-        return nil
-    else
-        t = getmetatable(t).outer
-        return t[k]
+    local function __index(t, k)
+        if rawget(t, '.'..k) then
+            return nil
+        else
+            t = getmetatable(t).outer
+            return t[k]
+        end
     end
-end
 
-local function __newindex(t, k, v)
-    if k:sub(1, 1) == '.' or rawget(t, '.'..k) or rawget(t, k) then
-        rawset(t, k, v)
-    else
-        t = getmetatable(t).outer
-        t[k] = v
+    local function __newindex(t, k, v)
+        if rawget(t, '.'..k) then
+            t['#undefined'] = t['#undefined'] - 1
+            assert(t['#undefined'] >= 0, "Negative undefined variable count")
+            if t['#undefined'] == 0 then
+                local mt = getmetatable(t)
+                mt.__index = mt.outer
+                mt.__newindex = mt.outer
+            end
+            rawset(t, '.'..k, nil)
+            rawset(t, k, v)
+        elseif k:sub(1, 1) == '.' then
+            t['#undefined'] = t['#undefined'] + 1
+            rawset(t, k, v)
+        else
+            t = getmetatable(t).outer
+            t[k] = v
+        end
     end
-end
 ]]
 
 header = header:gsub("\n", " ")
@@ -159,8 +167,8 @@ hooks.statement = function(statement, visibleVars, innerVarsIdx, parent, isFirst
         enterScope = {
             AstType = "VerbatimCode",
             Data = string.format(
-                "local %s = setmetatable({}, {functop = %s, outer = %s, __index = __index, __newindex = __newindex})",
-                symtab, tostring(isFuncTop), outer
+                "local mt = {functop = %s, outer = %s, __index = %s, __newindex = %s} local %s = setmetatable({['#undefined'] = 0}, mt)",
+                tostring(isFuncTop), outer, outer, outer, symtab
             )
         }
         stackPush = {
@@ -180,7 +188,11 @@ hooks.statement = function(statement, visibleVars, innerVarsIdx, parent, isFirst
 
         localDecls = {
             AstType = "VerbatimCode",
-            Data = string.format("%s = %s", table.concat(localListDot, ","), string.rep("true", #statement.LocalList, ","))
+            Data = string.format(
+                "mt.__index = __index mt.__newindex = __newindex %s = %s",
+                table.concat(localListDot, ","),
+                string.rep("true", #statement.LocalList, ",")
+            )
         }
 
         if #statement.InitList > 0 then
@@ -205,6 +217,13 @@ hooks.statement = function(statement, visibleVars, innerVarsIdx, parent, isFirst
     -- and functions created with syntax "function foo:bar(...)" end up in table foo to
     -- which we will have a reference anyway
     elseif statement.AstType == "Function" and statement.IsLocal and statement.Name then
+        localDecls = {
+            AstType = "VerbatimCode",
+            Data = string.format(
+                "mt.__index = __index mt.__newindex = __newindex %s[\".%s\"] = true", symtab, statement.Name
+            )
+        }
+
         statement.Name = {
             AstType = "MemberExpr",
             Base = {
