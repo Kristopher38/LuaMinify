@@ -75,12 +75,77 @@ local bpid = 1
 local lineBpMap = {}
 local symtab = "__SYM"
 local stacktab = "__STK"
+
+local function newNameGenerator(prefix)
+    local state = 0
+    local function gen()
+        state = state + 1
+        return string.format("%s%d", tostring(prefix), state)
+    end
+    return gen
+end
+
+local genScopeName = newNameGenerator(symtab)
+
+local localStack = setmetatable({}, { __index = function(t, k) return k end, name = genScopeName() })
+
+local function pushScope(t, name)
+    return setmetatable({}, { __index = t, name = name})
+end
+
+local function popScope(t)
+    return getmetatable(t).__index
+end
+
+local function getScopeName(t, v)
+    local inspect = require("inspect")
+    if v then
+        while type(t) ~= "function" and not rawget(t, v) do
+            t = getmetatable(t).__index
+        end
+    end
+    print(v)
+    print(inspect(t))
+    if type(t) ~= "function" then
+        return getmetatable(t).name
+    else
+        return "_ENV"
+    end
+end
+
+local function renameVarDirect(var)
+    local name = localStack[var.Name]
+    var.Name = string.format("%s.%s", getScopeName(localStack, var.Name), name)
+end
+
+local function renameVars(e)
+    for k, v in pairs(e) do
+        if type(v) == "table" then
+            renameVars(v)
+        end
+    end
+    if e.AstType == "VarExpr" then
+        renameVarDirect(e)
+    end
+end
+
+local genName = newNameGenerator("var")
 hooks.statement = function(statement, visibleVars, innerVarsIdx, parent, isFirst, isLast)
     local line = statement.FirstLine
     local ifBreakpoint = "if breakpoints[%d] or allbps then __krisDebug(%d,%s) end"
     validLines[line] = true
     lastValidLine = line
     lineBpMap[line] = bpid
+
+    if isFirst then
+        local name
+        if parent.AstType == "Function" then
+            name = genScopeName()
+        else
+            name = getScopeName(localStack)
+        end
+        localStack = pushScope(localStack, name)
+    end
 
     local stackPopBeforeRet
     if statement.AstType == "ReturnStatement" then
@@ -96,10 +161,11 @@ hooks.statement = function(statement, visibleVars, innerVarsIdx, parent, isFirst
         funcBeginBreakpoints[#funcBeginBreakpoints+1] = bpid
         local args = {}
         for _, v in ipairs(parent.Arguments) do
-            args[#args + 1] = string.format("%s[\".%s\"] = true", symtab, v)
-            args[#args + 1] = string.format("%s.%s = %s", symtab, v, v)
+            localStack[v] = genName()
+            args[#args + 1] = string.format("%s.%s = %s", getScopeName(localStack, v), localStack[v], v)
         end
-        args[#args + 1] = string.format("%s.self = self", symtab)
+        localStack.self = genName()
+        args[#args + 1] = string.format("%s.%s = self", getScopeName(localStack, "self"), localStack.self)
         setupArgs = {
             AstType = "VerbatimCode",
             Data = table.concat(args, ";")
@@ -108,7 +174,7 @@ hooks.statement = function(statement, visibleVars, innerVarsIdx, parent, isFirst
 
     local stmtPrefix = {
         AstType = "VerbatimCode",
-        Data = string.format(ifBreakpoint, bpid, line, symtab),
+        Data = string.format(ifBreakpoint, bpid, line, getScopeName(localStack)),
         FirstLine = line
     }
 
@@ -119,7 +185,7 @@ hooks.statement = function(statement, visibleVars, innerVarsIdx, parent, isFirst
         returnBreakpoints[#returnBreakpoints+1] = bpid
         stmtSuffix = {
             AstType = "VerbatimCode",
-            Data = string.format(ifBreakpoint, bpid, line, symtab),
+            Data = string.format(ifBreakpoint, bpid, line, getScopeName(localStack)),
             FirstLine = line
         }
         stackPopAfterRet = {
@@ -131,14 +197,17 @@ hooks.statement = function(statement, visibleVars, innerVarsIdx, parent, isFirst
 
     local enterFor
     if parent.AstType == "NumericForStatement" and isFirst then
+        local name = genName()
+        localStack[parent.Variable] = name
         enterFor = {
             AstType = "VerbatimCode",
-            Data = string.format("%s.%s = %s", symtab, parent.Variable, parent.Variable)
+            Data = string.format("%s.%s = %s", getScopeName(localStack, parent.Variable), name, parent.Variable)
         }
     elseif parent.AstType == "GenericForStatement" and isFirst then
         local vars = {}
         for _, v in ipairs(parent.VariableList) do
-            vars[#vars + 1] = string.format("%s.%s = %s", symtab, v, v)
+            localStack[v] = genName()
+            vars[#vars + 1] = string.format("%s.%s = %s", getScopeName(localStack, v), localStack[v], v)
         end
         enterFor = {
             AstType = "VerbatimCode",
@@ -146,54 +215,26 @@ hooks.statement = function(statement, visibleVars, innerVarsIdx, parent, isFirst
         }
     end
 
-    local enterMain
-    if isFirst and parent.AstType == "Main" then
-        enterMain = {
-            AstType = "VerbatimCode",
-            Data = header
-        }
-    end
-
-    local enterScope
+    local enterFunction
     local stackPush
-    if isFirst then
-        local isFuncTop = parent.AstType == "Function" or parent.AstType == "Main"
-        local outer
-        if parent.AstType == "Main" then
-            outer = "_ENV"
-        else
-            outer = symtab
-        end
-        enterScope = {
+    if isFirst and (parent.AstType == "Function" or parent.AstType == "Main") then
+        enterFunction = {
             AstType = "VerbatimCode",
-            Data = string.format(
-                "local mt = {functop = %s, outer = %s, __index = %s, __newindex = %s} local %s = setmetatable({['#undefined'] = 0}, mt)",
-                tostring(isFuncTop), outer, outer, outer, symtab
-            )
+            Data = string.format("local %s = {}", getScopeName(localStack))
         }
         stackPush = {
             AstType = "VerbatimCode",
-            Data = string.format("%s[#%s+%d] = %s", stacktab, stacktab, isFuncTop and 1 or 0, symtab)
+            Data = string.format("%s[#%s+1] = %s", stacktab, stacktab, getScopeName(localStack))
         }
     end
 
     local localDecls
     if statement.AstType == "LocalStatement" then
-        local localListDot = {}
         local localList = {}
         for i, v in ipairs(statement.LocalList) do
-            localListDot[#localListDot + 1] = string.format("%s[\".%s\"]", symtab, v)
-            localList[#localList + 1] = string.format("%s.%s", symtab, v)
+            localStack[v] = genName()
+            localList[#localList + 1] = string.format("%s.%s", getScopeName(localStack, v), localStack[v])
         end
-
-        localDecls = {
-            AstType = "VerbatimCode",
-            Data = string.format(
-                "mt.__index = __index mt.__newindex = __newindex %s = %s",
-                table.concat(localListDot, ","),
-                string.rep("true", #statement.LocalList, ",")
-            )
-        }
 
         if #statement.InitList > 0 then
             statement = {
@@ -217,30 +258,47 @@ hooks.statement = function(statement, visibleVars, innerVarsIdx, parent, isFirst
     -- and functions created with syntax "function foo:bar(...)" end up in table foo to
     -- which we will have a reference anyway
     elseif statement.AstType == "Function" and statement.IsLocal and statement.Name then
-        localDecls = {
-            AstType = "VerbatimCode",
-            Data = string.format(
-                "mt.__index = __index mt.__newindex = __newindex %s[\".%s\"] = true", symtab, statement.Name
-            )
-        }
-
+        local name = genName()
+        localStack[statement.Name] = name
         statement.Name = {
             AstType = "MemberExpr",
             Base = {
                 AstType = "VarExpr",
-                Name = symtab
+                Name = getScopeName(localStack, statement.Name)
             },
-            Ident = statement.Name,
+            Ident = name,
             Indexer = "."
         }
         statement.IsLocal = false
     end
 
-    return packSkipNils(enterMain, enterScope, stackPush, setupArgs, enterFor, stmtPrefix, localDecls, stackPopBeforeRet, statement, stmtSuffix, stackPopAfterRet)
-end
+    if statement.AstType == "LocalStatement" or
+        statement.AstType == "ReturnStatement" or
+        statement.AstType == "AssignmentStatement" or
+        statement.AstType == "CallStatement"
+    then
+        renameVars(statement) 
+    elseif statement.AstType == "IfStatement" then
+        for _, clause in ipairs(statement.Clauses) do
+            renameVars(clause.Condition)
+        end
+    elseif statement.AstType == "WhileStatement" or
+        statement.AstType == "RepeatStatement"
+    then
+        renameVars(statement.Condition)
+    elseif statement.AstType == "NumericForStatement" then
+        renameVarDirect(statement.Variable)
+    elseif statement.AstType == "GenericForStatement" then
+        for _, var in ipairs(statement.VariableList) do
+            renameVarDirect(var)
+        end
+    end
 
-hooks.varexpr = function(id, parent)
-    return {AstType = "VerbatimCode", Data = string.format("%s.%s", symtab, id.Name), FirstLine = id.FirstLine}
+    if isLast then
+        localStack = popScope(localStack)
+    end
+
+    return packSkipNils(enterFunction, stackPush, setupArgs, enterFor, stmtPrefix, localDecls, stackPopBeforeRet, statement, stmtSuffix, stackPopAfterRet)
 end
 
 local sandbox = setmetatable({}, {__index = _ENV})
