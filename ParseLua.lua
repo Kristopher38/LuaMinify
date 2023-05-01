@@ -1116,7 +1116,7 @@ local function ParseLua(src, options, hooks)
 						return false, GenerateError("for variable expected.")
 					end
 					varList[#varList+1] = tok:Get(tokenList).Data
-					addVar(varList[#varList+1])
+					addVar(varList[#varList])
 				end
 				if not tok:ConsumeKeyword('in', tokenList) then
 					return false, GenerateError("`in` expected.")
