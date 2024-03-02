@@ -461,7 +461,7 @@ end
 local function ParseLua(src, options, hooks)
 	options = options or {}
 	hooks = hooks or {}
-	hooks.statement = hooks.statement or function(statement, ...) return statement end
+	hooks.statement = hooks.statement or function(statement, ...) return {statement} end
 	hooks.func = hooks.func or function(...) end
 	hooks.varexpr = hooks.varexpr or function(expr, ...) return expr end
 
