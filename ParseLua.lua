@@ -78,7 +78,7 @@ local function LexLua(src, options)
 					while true do
 						--check for eof
 						if peek() == '' then
-							generateError("Expected `]"..string.rep('=', equalsCount).."]` near <eof>.", 3)
+							generateError("Expected `]"..string.rep('=', equalsCount).."]` near <eof>.")
 						end
 
 						--check for the end
@@ -309,7 +309,7 @@ local function LexLua(src, options)
 				if consume('=') then
 					toEmit = {Type = 'Symbol', Data = '~='}
 				else
-					generateError("Unexpected symbol `~` in source.", 2)
+					generateError("Unexpected symbol `~` in source.")
 				end
 
 			elseif consume('.') then
@@ -339,7 +339,7 @@ local function LexLua(src, options)
 				if contents then
 					toEmit = {Type = 'String', Data = all, Constant = contents}
 				else
-					generateError("Unexpected Symbol `"..c.."` in source.", 2)
+					generateError("Unexpected Symbol `"..c.."` in source.")
 				end
 			end
 
@@ -356,7 +356,7 @@ local function LexLua(src, options)
 			tokens[#tokens+1] = toEmit
 
 			--halt after eof has been emitted
-			if toEmit.Type == 'Eof' then break end
+			if toEmit and toEmit.Type == 'Eof' then break end
 		end
 	end)
 	if not st then
