@@ -71,9 +71,9 @@ local function Format_Identity(ast)
 	formatExpr = function(expr)
 		local tok_it = 1
 		local function appendNextToken(str)
-			local tok = expr.Tokens[tok_it];
+			local tok = expr.tokens[tok_it];
 			if str and tok.Data ~= str then
-				error("Expected token '" .. str .. "'. Tokens: " .. util.PrintTable(expr.Tokens))
+				error("Expected token '" .. str .. "'. tokens: " .. util.PrintTable(expr.tokens))
 			end
 			out:appendToken( tok )
 			tok_it = tok_it + 1
@@ -83,7 +83,7 @@ local function Format_Identity(ast)
 			tok_it = tok_it + 1
 		end
 		local function appendWhite()
-			local tok = expr.Tokens[tok_it];
+			local tok = expr.tokens[tok_it];
 			if not tok then error(util.PrintTable(expr)) end
 			out:appendWhite( tok )
 			tok_it = tok_it + 1
@@ -93,8 +93,8 @@ local function Format_Identity(ast)
 			out:appendStr(str)
 		end
 		local function peek()
-			if tok_it < #expr.Tokens then
-				return expr.Tokens[tok_it].Data
+			if tok_it < #expr.tokens then
+				return expr.tokens[tok_it].Data
 			end
 		end
 		local function appendComma(mandatory, seperators)
@@ -114,119 +114,119 @@ local function Format_Identity(ast)
 			end
 		end
 
-		debug_printf("formatExpr(%s) at line %i", expr.AstType, expr.Tokens[1] and expr.Tokens[1].Line or -1)
+		debug_printf("formatExpr(%s) at line %i", expr.__tag, expr.tokens[1] and expr.tokens[1].Line or -1)
 
-		if expr.AstType == 'VarExpr' then
-			if expr.Variable then
-				appendStr( expr.Variable.Name )
+		if expr.__tag == 'VarExpr' then
+			if expr.var then
+				appendStr( expr.var.name )
 			else
-				appendStr( expr.Name )
+				appendStr( expr.name )
 			end
 
-		elseif expr.AstType == 'NumberExpr' then
-			appendToken( expr.Value )
+		elseif expr.__tag == 'NumberExpr' then
+			appendToken( expr.value )
 
-		elseif expr.AstType == 'StringExpr' then
-			appendToken( expr.Value )
+		elseif expr.__tag == 'StringExpr' then
+			appendToken( expr.value )
 
-		elseif expr.AstType == 'BooleanExpr' then
-			appendNextToken( expr.Value and "true" or "false" )
+		elseif expr.__tag == 'BooleanExpr' then
+			appendNextToken( expr.value and "true" or "false" )
 
-		elseif expr.AstType == 'NilExpr' then
+		elseif expr.__tag == 'NilExpr' then
 			appendNextToken( "nil" )
 
-		elseif expr.AstType == 'BinopExpr' then
-			formatExpr(expr.Lhs)
-			appendStr( expr.Op )
-			formatExpr(expr.Rhs)
+		elseif expr.__tag == 'BinopExpr' then
+			formatExpr(expr.lhs)
+			appendStr( expr.op )
+			formatExpr(expr.rhs)
 
-		elseif expr.AstType == 'UnopExpr' then
-			appendStr( expr.Op )
-			formatExpr(expr.Rhs)
+		elseif expr.__tag == 'UnopExpr' then
+			appendStr( expr.op )
+			formatExpr(expr.rhs)
 
-		elseif expr.AstType == 'DotsExpr' then
+		elseif expr.__tag == 'DotsExpr' then
 			appendNextToken( "..." )
 
-		elseif expr.AstType == 'CallExpr' then
-			formatExpr(expr.Base)
+		elseif expr.__tag == 'CallExpr' then
+			formatExpr(expr.base)
 			appendNextToken( "(" )
-			for i,arg in ipairs( expr.Arguments ) do
+			for i,arg in ipairs( expr.args ) do
 				formatExpr(arg)
-				appendComma( i ~= #expr.Arguments )
+				appendComma( i ~= #expr.args )
 			end
 			appendNextToken( ")" )
 
-		elseif expr.AstType == 'TableCallExpr' then
-			formatExpr( expr.Base )
-			formatExpr( expr.Arguments[1] )
+		elseif expr.__tag == 'TableCallExpr' then
+			formatExpr( expr.base )
+			formatExpr( expr.arg )
 
-		elseif expr.AstType == 'StringCallExpr' then
-			formatExpr(expr.Base)
-			appendToken( expr.Arguments[1] )
+		elseif expr.__tag == 'StringCallExpr' then
+			formatExpr(expr.base)
+			appendToken( expr.arg )
 
-		elseif expr.AstType == 'IndexExpr' then
-			formatExpr(expr.Base)
+		elseif expr.__tag == 'IndexExpr' then
+			formatExpr(expr.base)
 			appendNextToken( "[" )
-			formatExpr(expr.Index)
+			formatExpr(expr.index)
 			appendNextToken( "]" )
 
-		elseif expr.AstType == 'MemberExpr' then
-			formatExpr(expr.Base)
+		elseif expr.__tag == 'MemberExpr' then
+			formatExpr(expr.base)
 			appendNextToken()  -- . or :
-			appendToken(expr.Ident)
+			appendToken(expr.ident)
 
-		elseif expr.AstType == 'Function' then
+		elseif expr.__tag == 'FunctionExpr' then
 			-- anonymous function
 			appendNextToken( "function" )
 			appendNextToken( "(" )
-			if #expr.Arguments > 0 then
-				for i = 1, #expr.Arguments do
-					appendStr( expr.Arguments[i].Name )
-					if i ~= #expr.Arguments then
+			if #expr.args > 0 then
+				for i = 1, #expr.args do
+					appendStr( expr.args[i].name )
+					if i ~= #expr.args then
 						appendNextToken(",")
-					elseif expr.VarArg then
+					elseif expr.vararg then
 						appendNextToken(",")
 						appendNextToken("...")
 					end
 				end
-			elseif expr.VarArg then
+			elseif expr.vararg then
 				appendNextToken("...")
 			end
 			appendNextToken(")")
-			formatStatlist(expr.Body)
+			formatStatlist(expr.body)
 			appendNextToken("end")
 
-		elseif expr.AstType == 'ConstructorExpr' then
+		elseif expr.__tag == 'ConstructorExpr' then
 			appendNextToken( "{" )
-			for i = 1, #expr.EntryList do
-				local entry = expr.EntryList[i]
-				if entry.Type == 'Key' then
+			for i = 1, #expr.entry_list do
+				local entry = expr.entry_list[i]
+				if entry.__tag == 'Key' then
 					appendNextToken( "[" )
-					formatExpr(entry.Key)
+					formatExpr(entry.key)
 					appendNextToken( "]" )
 					appendNextToken( "=" )
-					formatExpr(entry.Value)
-				elseif entry.Type == 'Value' then
-					formatExpr(entry.Value)
-				elseif entry.Type == 'KeyString' then
-					appendStr(entry.Key)
+					formatExpr(entry.value)
+				elseif entry.__tag == 'Value' then
+					formatExpr(entry.value)
+				elseif entry.__tag == 'KeyString' then
+					appendStr(entry.key)
 					appendNextToken( "=" )
-					formatExpr(entry.Value)
+					formatExpr(entry.value)
 				end
-				appendComma( i ~= #expr.EntryList, { ",", ";" } )
+				appendComma( i ~= #expr.entry_list, { ",", ";" } )
 			end
 			appendNextToken( "}" )
 
-		elseif expr.AstType == 'Parentheses' then
+		elseif expr.__tag == 'ParenExpr' then
 			appendNextToken( "(" )
-			formatExpr(expr.Inner)
+			formatExpr(expr.inner)
 			appendNextToken( ")" )
 
 		else
-			print("Unknown AST Type: ", statement.AstType)
+			print("Unknown AST __tag: ", statement.__tag)
 		end
 
-		assert(tok_it == #expr.Tokens + 1)
+		assert(tok_it == #expr.tokens + 1)
 		debug_printf("/formatExpr")
 	end
 
@@ -234,9 +234,9 @@ local function Format_Identity(ast)
 	local formatStatement = function(statement)
 		local tok_it = 1
 		local function appendNextToken(str)
-			local tok = statement.Tokens[tok_it];
+			local tok = statement.tokens[tok_it];
 			assert(tok, string.format("Not enough tokens for %q. First token at %i:%i",
-				str, statement.Tokens[1].Line, statement.Tokens[1].Char))
+				str, statement.tokens[1].Line, statement.tokens[1].Char))
 			assert(tok.Data == str,
 				string.format('Expected token %q, got %q', str, tok.Data))
 			out:appendToken( tok )
@@ -247,7 +247,7 @@ local function Format_Identity(ast)
 			tok_it = tok_it + 1
 		end
 		local function appendWhite()
-			local tok = statement.Tokens[tok_it];
+			local tok = statement.tokens[tok_it];
 			out:appendWhite( tok )
 			tok_it = tok_it + 1
 		end
@@ -257,182 +257,182 @@ local function Format_Identity(ast)
 		end
 		local function appendComma(mandatory)
 			if mandatory
-			   or (tok_it < #statement.Tokens and statement.Tokens[tok_it].Data == ",") then
+			   or (tok_it < #statement.tokens and statement.tokens[tok_it].Data == ",") then
 			   appendNextToken( "," )
 			end
 		end
 
 		debug_printf("")
-		debug_printf(string.format("formatStatement(%s) at line %i", statement.AstType, statement.Tokens[1] and statement.Tokens[1].Line or -1))
+		debug_printf(string.format("formatStatement(%s) at line %i", statement.__tag, statement.tokens[1] and statement.tokens[1].Line or -1))
 
-		if statement.AstType == 'AssignmentStatement' then
-			for i,v in ipairs(statement.Lhs) do
+		if statement.__tag == 'AssignmentStatement' then
+			for i,v in ipairs(statement.lhs) do
 				formatExpr(v)
-				appendComma( i ~= #statement.Lhs )
+				appendComma( i ~= #statement.lhs )
 			end
-			if #statement.Rhs > 0 then
+			if #statement.rhs > 0 then
 				appendNextToken( "=" )
-				for i,v in ipairs(statement.Rhs) do
+				for i,v in ipairs(statement.rhs) do
 					formatExpr(v)
-					appendComma( i ~= #statement.Rhs )
+					appendComma( i ~= #statement.rhs )
 				end
 			end
 
-		elseif statement.AstType == 'CallStatement' then
-			formatExpr(statement.Expression)
+		elseif statement.__tag == 'CallStatement' then
+			formatExpr(statement)
 
-		elseif statement.AstType == 'LocalStatement' then
+		elseif statement.__tag == 'LocalStatement' then
 			appendNextToken( "local" )
-			for i = 1, #statement.LocalList do
-				appendStr( statement.LocalList[i].Name )
-				appendComma( i ~= #statement.LocalList )
+			for i = 1, #statement.names do
+				appendStr( statement.names[i].name )
+				appendComma( i ~= #statement.names )
 			end
-			if #statement.InitList > 0 then
+			if #statement.init_exprs > 0 then
 				appendNextToken( "=" )
-				for i = 1, #statement.InitList do
-					formatExpr(statement.InitList[i])
-					appendComma( i ~= #statement.InitList )
+				for i = 1, #statement.init_exprs do
+					formatExpr(statement.init_exprs[i])
+					appendComma( i ~= #statement.init_exprs )
 				end
 			end
 
-		elseif statement.AstType == 'IfStatement' then
+		elseif statement.__tag == 'IfStatement' then
 			appendNextToken( "if" )
-			formatExpr( statement.Clauses[1].Condition )
+			formatExpr( statement.clauses[1].cond )
 			appendNextToken( "then" )
-			formatStatlist( statement.Clauses[1].Body )
-			for i = 2, #statement.Clauses do
-				local st = statement.Clauses[i]
-				if st.Condition then
+			formatStatlist( statement.clauses[1].body )
+			for i = 2, #statement.clauses do
+				local st = statement.clauses[i]
+				if st.cond then
 					appendNextToken( "elseif" )
-					formatExpr(st.Condition)
+					formatExpr(st.cond)
 					appendNextToken( "then" )
 				else
 					appendNextToken( "else" )
 				end
-				formatStatlist(st.Body)
+				formatStatlist(st.body)
 			end
 			appendNextToken( "end" )
 
-		elseif statement.AstType == 'WhileStatement' then
+		elseif statement.__tag == 'WhileStatement' then
 			appendNextToken( "while" )
-			formatExpr(statement.Condition)
+			formatExpr(statement.cond)
 			appendNextToken( "do" )
-			formatStatlist(statement.Body)
+			formatStatlist(statement.body)
 			appendNextToken( "end" )
 
-		elseif statement.AstType == 'DoStatement' then
+		elseif statement.__tag == 'DoStatement' then
 			appendNextToken( "do" )
-			formatStatlist(statement.Body)
+			formatStatlist(statement.body)
 			appendNextToken( "end" )
 
-		elseif statement.AstType == 'ReturnStatement' then
+		elseif statement.__tag == 'ReturnStatement' then
 			appendNextToken( "return" )
-			for i = 1, #statement.Arguments do
-				formatExpr(statement.Arguments[i])
-				appendComma( i ~= #statement.Arguments )
+			for i = 1, #statement.args do
+				formatExpr(statement.args[i])
+				appendComma( i ~= #statement.args )
 			end
 
-		elseif statement.AstType == 'BreakStatement' then
+		elseif statement.__tag == 'BreakStatement' then
 			appendNextToken( "break" )
 
-		elseif statement.AstType == 'RepeatStatement' then
+		elseif statement.__tag == 'RepeatStatement' then
 			appendNextToken( "repeat" )
-			formatStatlist(statement.Body)
+			formatStatlist(statement.body)
 			appendNextToken( "until" )
-			formatExpr(statement.Condition)
+			formatExpr(statement.cond)
 
-		elseif statement.AstType == 'Function' then
+		elseif statement.__tag == 'FunctionStatement' then
 			--print(util.PrintTable(statement))
 
-			if statement.IsLocal then
+			if statement.is_local then
 				appendNextToken( "local" )
 			end
 			appendNextToken( "function" )
 
-			if statement.IsLocal then
-				appendStr(statement.Name.Name)
+			if statement.is_local then
+				appendStr(statement.name.name)
 			else
-				formatExpr(statement.Name)
+				formatExpr(statement.name)
 			end
 
 			appendNextToken( "(" )
-			if #statement.Arguments > 0 then
-				for i = 1, #statement.Arguments do
-					appendStr( statement.Arguments[i].Name )
-					appendComma( i ~= #statement.Arguments or statement.VarArg )
-					if i == #statement.Arguments and statement.VarArg then
+			if #statement.args > 0 then
+				for i = 1, #statement.args do
+					appendStr( statement.args[i].name )
+					appendComma( i ~= #statement.args or statement.vararg )
+					if i == #statement.args and statement.vararg then
 						appendNextToken( "..." )
 					end
 				end
-			elseif statement.VarArg then
+			elseif statement.vararg then
 				appendNextToken( "..." )
 			end
 			appendNextToken( ")" )
 
-			formatStatlist(statement.Body)
+			formatStatlist(statement.body)
 			appendNextToken( "end" )
 
-		elseif statement.AstType == 'GenericForStatement' then
+		elseif statement.__tag == 'GenericForStatement' then
 			appendNextToken( "for" )
-			for i = 1, #statement.VariableList do
-				appendStr( statement.VariableList[i].Name )
-				appendComma( i ~= #statement.VariableList )
+			for i = 1, #statement.var_list do
+				appendStr( statement.var_list[i].name )
+				appendComma( i ~= #statement.var_list )
 			end
 			appendNextToken( "in" )
-			for i = 1, #statement.Generators do
-				formatExpr(statement.Generators[i])
-				appendComma( i ~= #statement.Generators )
+			for i = 1, #statement.generators do
+				formatExpr(statement.generators[i])
+				appendComma( i ~= #statement.generators )
 			end
 			appendNextToken( "do" )
-			formatStatlist(statement.Body)
+			formatStatlist(statement.body)
 			appendNextToken( "end" )
 
-		elseif statement.AstType == 'NumericForStatement' then
+		elseif statement.__tag == 'NumericForStatement' then
 			appendNextToken( "for" )
-			appendStr( statement.Variable.Name )
+			appendStr( statement.var.name )
 			appendNextToken( "=" )
-			formatExpr(statement.Start)
+			formatExpr(statement.start)
 			appendNextToken( "," )
-			formatExpr(statement.End)
-			if statement.Step then
+			formatExpr(statement.finish)
+			if statement.step then
 				appendNextToken( "," )
-				formatExpr(statement.Step)
+				formatExpr(statement.step)
 			end
 			appendNextToken( "do" )
-			formatStatlist(statement.Body)
+			formatStatlist(statement.body)
 			appendNextToken( "end" )
 
-		elseif statement.AstType == 'LabelStatement' then
+		elseif statement.__tag == 'LabelStatement' then
 			appendNextToken( "::" )
-			appendStr( statement.Label )
+			appendStr( statement.label )
 			appendNextToken( "::" )
 
-		elseif statement.AstType == 'GotoStatement' then
+		elseif statement.__tag == 'GotoStatement' then
 			appendNextToken( "goto" )
-			appendStr( statement.Label )
+			appendStr( statement.label )
 
-		elseif statement.AstType == 'Eof' then
+		elseif statement.__tag == 'Eof' then
 			appendWhite()
 
 		else
-			print("Unknown AST Type: ", statement.AstType)
+			print("Unknown AST __tag: ", statement.__tag)
 		end
 
 		if statement.Semicolon then
 			appendNextToken(";")
 		end
 
-		assert(tok_it == #statement.Tokens + 1)
+		assert(tok_it == #statement.tokens + 1)
 		debug_printf("/formatStatment")
 	end
 
 	formatStatlist = function(statList)
-		for _, stat in ipairs(statList.Body) do
+		for _, stat in ipairs(statList.body) do
 			formatStatement(stat)
 		end
 	end
 
-	formatStatlist(ast)
+	formatStatlist({body = ast})
 	
 	return true, table.concat(out.rope)
 end

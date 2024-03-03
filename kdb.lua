@@ -32,7 +32,7 @@ local lines = f:read("*all")
 local linesTable = split(lines, "\n")
 f:close()
 local ok, tree = parser(lines, {disableEmitLeadingWhite=true,
-                                disableEmitTokenList=true}, hooks)
+                                disableEmitTokenList=false}, hooks)
 
 if not ok then
     error(string.format("Error parsing %s: %s", argv[1], tree))
@@ -45,6 +45,15 @@ if argv[2] then
         error(string.format("Failed opening %s", argv[2]))
     end
     out:write(inspect(tree))
+    out:close()
+end
+
+if argv[3] then
+    local out = io.open(argv[3], "w")
+    if not out then
+        error(string.format("Failed opening %s", argv[3]))
+    end
+    out:write(beautified)
     out:close()
 end
 

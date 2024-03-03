@@ -24,13 +24,14 @@ local function Format_Beautify(ast)
 	local curLine = 1
 	
 	local function getIndentation(stmt)
-		if stmt.FirstLine and curLine < stmt.FirstLine then
-			local toCatchUp = stmt.FirstLine - curLine
+		local indentStr = string.rep("    ", indent)
+		if stmt.first_line and curLine < stmt.first_line then
+			local toCatchUp = stmt.first_line - curLine
 			curLine = curLine + toCatchUp
 			--return string.format("%s%d:    ", string.rep("\n", toCatchUp), curLine)
-			return string.rep("\n", toCatchUp)
+			return string.rep("\n", toCatchUp) .. indentStr
 		else
-			return " "
+			return indentStr
 		end
 	end
 	
@@ -67,262 +68,263 @@ local function Format_Beautify(ast)
 	end
 
 	formatExpr = function(expr)
-		local out = string.rep('(', expr.ParenCount or 0)
-		if expr.AstType == 'VerbatimCode' then
+		local out = ""
+		if expr.__tag == 'VerbatimCode' then
 			out = out .. expr.Data
-		elseif expr.AstType == 'VarExpr' then
-			out = out .. expr.Name
+		elseif expr.__tag == 'VarExpr' then
+			out = out .. expr.name
 
-		elseif expr.AstType == 'NumberExpr' then
-			out = out..expr.Value
+		elseif expr.__tag == 'NumberExpr' then
+			out = out..expr.value
 
-		elseif expr.AstType == 'StringExpr' then
-			out = out..expr.Value
+		elseif expr.__tag == 'StringExpr' then
+			out = out..expr.value
 
-		elseif expr.AstType == 'BooleanExpr' then
-			out = out..tostring(expr.Value)
+		elseif expr.__tag == 'BooleanExpr' then
+			out = out..tostring(expr.value)
 
-		elseif expr.AstType == 'NilExpr' then
+		elseif expr.__tag == 'NilExpr' then
 			out = joinStatementsSafe(out, "nil")
 
-		elseif expr.AstType == 'BinopExpr' then
-			out = joinStatementsSafe(out, formatExpr(expr.Lhs)) .. " "
-			out = joinStatementsSafe(out, expr.Op) .. " "
-			out = joinStatementsSafe(out, formatExpr(expr.Rhs))
+		elseif expr.__tag == 'BinopExpr' then
+			out = joinStatementsSafe(out, formatExpr(expr.lhs)) .. " "
+			out = joinStatementsSafe(out, expr.op) .. " "
+			out = joinStatementsSafe(out, formatExpr(expr.rhs))
 
-		elseif expr.AstType == 'UnopExpr' then
-			out = joinStatementsSafe(out, expr.Op) .. (#expr.Op ~= 1 and " " or "")
-			out = joinStatementsSafe(out, formatExpr(expr.Rhs))
+		elseif expr.__tag == 'UnopExpr' then
+			out = joinStatementsSafe(out, expr.op) .. (#expr.op ~= 1 and " " or "")
+			out = joinStatementsSafe(out, formatExpr(expr.rhs))
 
-		elseif expr.AstType == 'DotsExpr' then
+		elseif expr.__tag == 'DotsExpr' then
 			out = out.."..."
 
-		elseif expr.AstType == 'CallExpr' then
-			out = out..formatExpr(expr.Base)
+		elseif expr.__tag == 'CallExpr' or expr.__tag == 'CallStatement' then
+			out = out..formatExpr(expr.base)
 			out = out.."("
-			for i = 1, #expr.Arguments do
-				out = out..formatExpr(expr.Arguments[i])
-				if i ~= #expr.Arguments then
+			for i = 1, #expr.args do
+				out = out..formatExpr(expr.args[i])
+				if i ~= #expr.args then
 					out = out..", "
 				end
 			end
 			out = out..")"
 
-		elseif expr.AstType == 'TableCallExpr' then
-			out = out..formatExpr(expr.Base) .. " "
-			out = out..formatExpr(expr.Arguments[1])
+		elseif expr.__tag == 'TableCallExpr' then
+			out = out..formatExpr(expr.base) .. " "
+			out = out..formatExpr(expr.arg)
 
-		elseif expr.AstType == 'StringCallExpr' then
-			out = out..formatExpr(expr.Base) .. " "
-			out = out..expr.Arguments[1]
+		elseif expr.__tag == 'StringCallExpr' then
+			out = out..formatExpr(expr.base) .. " "
+			out = out..expr.arg
 
-		elseif expr.AstType == 'IndexExpr' then
-			out = out..formatExpr(expr.Base).."["..formatExpr(expr.Index).."]"
+		elseif expr.__tag == 'IndexExpr' then
+			out = out..formatExpr(expr.base).."["..formatExpr(expr.index).."]"
 
-		elseif expr.AstType == 'MemberExpr' then
-			out = out..formatExpr(expr.Base)..expr.Indexer..expr.Ident
+		elseif expr.__tag == 'MemberExpr' then
+			out = out..formatExpr(expr.base)..expr.indexer..expr.ident
 
-		elseif expr.AstType == 'Function' then
+		elseif expr.__tag == 'FunctionExpr' then
 			-- anonymous function
 			out = out.."function("
-			if #expr.Arguments > 0 then
-				for i = 1, #expr.Arguments do
-					out = out..expr.Arguments[i]
-					if i ~= #expr.Arguments then
+			if #expr.args > 0 then
+				for i = 1, #expr.args do
+					out = out..expr.args[i]
+					if i ~= #expr.args then
 						out = out..", "
-					elseif expr.VarArg then
+					elseif expr.vararg then
 						out = out..", ..."
 					end
 				end
-			elseif expr.VarArg then
+			elseif expr.vararg then
 				out = out.."..."
 			end
 			out = out..")" .. " "
 			indent = indent + 1
-			out = joinStatementsSafe(out, formatStatlist(expr.Body))
+			out = joinStatementsSafe(out, formatStatlist(expr.body))
 			indent = indent - 1
 			out = joinStatementsSafe(out, getIndentation(expr) .. "end")
-		elseif expr.AstType == 'ConstructorExpr' then
+		elseif expr.__tag == 'ConstructorExpr' then
 			out = out.."{ "
-			for i = 1, #expr.EntryList do
-				local entry = expr.EntryList[i]
-				if entry.Type == 'Key' then
-					out = out.."["..formatExpr(entry.Key).."] = "..formatExpr(entry.Value)
-				elseif entry.Type == 'Value' then
-					out = out..formatExpr(entry.Value)
-				elseif entry.Type == 'KeyString' then
-					out = out..entry.Key.." = "..formatExpr(entry.Value)
+			for i = 1, #expr.entry_list do
+				local entry = expr.entry_list[i]
+				if entry.__tag == 'Key' then
+					out = out.."["..formatExpr(entry.key).."] = "..formatExpr(entry.value)
+				elseif entry.__tag == 'Value' then
+					out = out..formatExpr(entry.value)
+				elseif entry.__tag == 'KeyString' then
+					out = out..entry.key.." = "..formatExpr(entry.value)
 				end
-				if i ~= #expr.EntryList then
+				if i ~= #expr.entry_list then
 					out = out..", "
 				end
 			end
 			out = out.." }"
 
-		elseif expr.AstType == 'Parentheses' then
-			out = out.."("..formatExpr(expr.Inner)..")"
+		elseif expr.__tag == 'ParenExpr' then
+			out = out.."("..formatExpr(expr.inner)..")"
 
 		end
-		out = out..string.rep(')', expr.ParenCount or 0)
 		return out
 	end
 
 	local formatStatement = function(statement)
 		local out = ""
-		if statement.AstType == 'VerbatimCode' then
+		if statement.__tag == 'VerbatimCode' then
 			out = getIndentation(statement)..statement.Data
-		elseif statement.AstType == 'AssignmentStatement' then
+		elseif statement.__tag == 'AssignmentStatement' then
 			out = getIndentation(statement)
-			for i = 1, #statement.Lhs do
-				out = out..formatExpr(statement.Lhs[i])
-				if i ~= #statement.Lhs then
+			for i = 1, #statement.lhs do
+				out = out..formatExpr(statement.lhs[i])
+				if i ~= #statement.lhs then
 					out = out..", "
 				end
 			end
-			if #statement.Rhs > 0 then
+			if #statement.rhs > 0 then
 				out = out.." = "
-				for i = 1, #statement.Rhs do
-					out = out..formatExpr(statement.Rhs[i])
-					if i ~= #statement.Rhs then
+				for i = 1, #statement.rhs do
+					out = out..formatExpr(statement.rhs[i])
+					if i ~= #statement.rhs then
 						out = out..", "
 					end
 				end
 			end
-		elseif statement.AstType == 'CallStatement' then
-			out = getIndentation(statement) .. formatExpr(statement.Expression)
-		elseif statement.AstType == 'LocalStatement' then
+		elseif statement.__tag == 'CallStatement' then
+			out = getIndentation(statement) .. formatExpr(statement)
+		elseif statement.__tag == 'LocalStatement' then
 			out = getIndentation(statement) .. out.."local "
-			for i = 1, #statement.LocalList do
-				out = out..statement.LocalList[i]
-				if i ~= #statement.LocalList then
+			for i = 1, #statement.names do
+				out = out..statement.names[i]
+				if i ~= #statement.names then
 					out = out..", "
 				end
 			end
-			if #statement.InitList > 0 then
+			if #statement.init_exprs > 0 then
 				out = out.." = "
-				for i = 1, #statement.InitList do
-					out = out..formatExpr(statement.InitList[i])
-					if i ~= #statement.InitList then
+				for i = 1, #statement.init_exprs do
+					out = out..formatExpr(statement.init_exprs[i])
+					if i ~= #statement.init_exprs then
 						out = out..", "
 					end
 				end
 			end
-		elseif statement.AstType == 'IfStatement' then
-			out = getIndentation(statement) .. joinStatementsSafe("if ", formatExpr(statement.Clauses[1].Condition))
+		elseif statement.__tag == 'IfStatement' then
+			out = getIndentation(statement) .. joinStatementsSafe("if ", formatExpr(statement.clauses[1].cond))
 			out = joinStatementsSafe(out, " then") .. " "
 			indent = indent + 1
-			out = joinStatementsSafe(out, formatStatlist(statement.Clauses[1].Body))
+			out = joinStatementsSafe(out, formatStatlist(statement.clauses[1].body))
 			indent = indent - 1
-			for i = 2, #statement.Clauses do
-				local st = statement.Clauses[i]
-				if st.Condition then
-					out = getIndentation(statement) .. joinStatementsSafe(out, getIndentation(statement) .. "elseif ")
-					out = joinStatementsSafe(out, formatExpr(st.Condition))
-					out = joinStatementsSafe(out, " then") .. " "
-				else
-					out = joinStatementsSafe(out, getIndentation(statement) .. "else") .. " "
-				end
+			for i = 2, #statement.clauses do
+				local st = statement.clauses[i]
+				out = getIndentation(statement) .. joinStatementsSafe(out, getIndentation(statement) .. "elseif ")
+				out = joinStatementsSafe(out, formatExpr(st.cond))
+				out = joinStatementsSafe(out, " then") .. " "
 				indent = indent + 1
-				out = joinStatementsSafe(out, formatStatlist(st.Body))
+				out = joinStatementsSafe(out, formatStatlist(st.body))
+				indent = indent - 1
+			end
+			if statement.else_body.__tag == "Some" then
+				out = joinStatementsSafe(out, getIndentation(statement) .. "else") .. " "
+				indent = indent + 1
+				out = joinStatementsSafe(out, formatStatlist(statement.else_body[1]))
 				indent = indent - 1
 			end
 			out = joinStatementsSafe(out, getIndentation(statement) .. "end") .. " "
-		elseif statement.AstType == 'WhileStatement' then
-			out = getIndentation(statement) .. joinStatementsSafe("while ", formatExpr(statement.Condition))
+		elseif statement.__tag == 'WhileStatement' then
+			out = getIndentation(statement) .. joinStatementsSafe("while ", formatExpr(statement.cond))
 			out = joinStatementsSafe(out, " do") .. " "
 			indent = indent + 1
-			out = joinStatementsSafe(out, formatStatlist(statement.Body))
+			out = joinStatementsSafe(out, formatStatlist(statement.body))
 			indent = indent - 1
 			out = joinStatementsSafe(out, getIndentation(statement) .. "end") .. " "
-		elseif statement.AstType == 'DoStatement' then
+		elseif statement.__tag == 'DoStatement' then
 			out = getIndentation(statement) .. joinStatementsSafe(out, "do") .. " "
 			indent = indent + 1
-			out = joinStatementsSafe(out, formatStatlist(statement.Body))
+			out = joinStatementsSafe(out, formatStatlist(statement.body))
 			indent = indent - 1
 			out = joinStatementsSafe(out, getIndentation(statement) .. "end") .. " "
-		elseif statement.AstType == 'ReturnStatement' then
+		elseif statement.__tag == 'ReturnStatement' then
 			out = getIndentation(statement) .. "return "
-			for i = 1, #statement.Arguments do
-				out = joinStatementsSafe(out, formatExpr(statement.Arguments[i]))
-				if i ~= #statement.Arguments then
+			for i = 1, #statement.args do
+				out = joinStatementsSafe(out, formatExpr(statement.args[i]))
+				if i ~= #statement.args then
 					out = out..", "
 				end
 			end
-		elseif statement.AstType == 'BreakStatement' then
+		elseif statement.__tag == 'BreakStatement' then
 			out = getIndentation(statement) .. "break"
-		elseif statement.AstType == 'RepeatStatement' then
+		elseif statement.__tag == 'RepeatStatement' then
 			out = getIndentation(statement) .. "repeat" .. " "
 			indent = indent + 1
-			out = joinStatementsSafe(out, formatStatlist(statement.Body))
+			out = joinStatementsSafe(out, formatStatlist(statement.body))
 			indent = indent - 1
 			out = joinStatementsSafe(out, getIndentation(statement) .. "until ")
-			out = joinStatementsSafe(out, formatExpr(statement.Condition)) .. " "
-		elseif statement.AstType == 'Function' then
-			if statement.IsLocal then
+			out = joinStatementsSafe(out, formatExpr(statement.cond)) .. " "
+		elseif statement.__tag == 'FunctionStatement' then
+			if statement.is_local then
 				out = "local "
 			end
 			out = joinStatementsSafe(out, "function ")
 			out = getIndentation(statement) .. out
-			if statement.IsLocal then
-				out = out..statement.Name
+			if statement.is_local then
+				out = out..statement.name
 			else
-				out = out..formatExpr(statement.Name)
+				out = out..formatExpr(statement.name)
 			end
 			out = out.."("
-			if #statement.Arguments > 0 then
-				for i = 1, #statement.Arguments do
-					out = out..statement.Arguments[i]
-					if i ~= #statement.Arguments then
+			if #statement.f.args > 0 then
+				for i = 1, #statement.f.args do
+					out = out..statement.f.args[i]
+					if i ~= #statement.f.args then
 						out = out..", "
-					elseif statement.VarArg then
+					elseif statement.f.vararg then
 						out = out..",..."
 					end
 				end
-			elseif statement.VarArg then
+			elseif statement.f.vararg then
 				out = out.."..."
 			end
 			out = out..")" .. " "
 			indent = indent + 1
-			out = joinStatementsSafe(out, formatStatlist(statement.Body))
+			out = joinStatementsSafe(out, formatStatlist(statement.f.body))
 			indent = indent - 1
 			out = joinStatementsSafe(out, getIndentation(statement) .. "end") .. " "
-		elseif statement.AstType == 'GenericForStatement' then
+		elseif statement.__tag == 'GenericForStatement' then
 			out = getIndentation(statement) .. "for "
-			for i = 1, #statement.VariableList do
-				out = out..statement.VariableList[i]
-				if i ~= #statement.VariableList then
+			for i = 1, #statement.var_list do
+				out = out..statement.var_list[i]
+				if i ~= #statement.var_list then
 					out = out..", "
 				end
 			end
 			out = out.." in "
-			for i = 1, #statement.Generators do
-				out = joinStatementsSafe(out, formatExpr(statement.Generators[i]))
-				if i ~= #statement.Generators then
+			for i = 1, #statement.generators do
+				out = joinStatementsSafe(out, formatExpr(statement.generators[i]))
+				if i ~= #statement.generators then
 					out = joinStatementsSafe(out, ', ')
 				end
 			end
 			out = joinStatementsSafe(out, " do") .. " "
 			indent = indent + 1
-			out = joinStatementsSafe(out, formatStatlist(statement.Body))
+			out = joinStatementsSafe(out, formatStatlist(statement.body))
 			indent = indent - 1
 			out = joinStatementsSafe(out, getIndentation(statement) .. "end") .. " "
-		elseif statement.AstType == 'NumericForStatement' then
+		elseif statement.__tag == 'NumericForStatement' then
 			out = getIndentation(statement) .. "for "
-			out = out..statement.Variable.." = "
-			out = out..formatExpr(statement.Start)..", "..formatExpr(statement.End)
-			if statement.Step then
-				out = out..", "..formatExpr(statement.Step)
+			out = out..statement.var.." = "
+			out = out..formatExpr(statement.start)..", "..formatExpr(statement.finish)
+			if statement.step.__tag == "Some" then
+				out = out..", "..formatExpr(statement.step[1])
 			end
 			out = joinStatementsSafe(out, " do") .. " "
 			indent = indent + 1
-			out = joinStatementsSafe(out, formatStatlist(statement.Body))
+			out = joinStatementsSafe(out, formatStatlist(statement.body))
 			indent = indent - 1
 			out = joinStatementsSafe(out, getIndentation(statement) .. "end") .. " "
-		elseif statement.AstType == 'LabelStatement' then
-			out = getIndentation(statement) .. "::" .. statement.Label .. "::" .. " "
-		elseif statement.AstType == 'GotoStatement' then
-			out = getIndentation(statement) .. "goto " .. statement.Label .. " "
-		elseif statement.AstType == 'Comment' then
+		elseif statement.__tag == 'LabelStatement' then
+			out = getIndentation(statement) .. "::" .. statement.label .. "::" .. " "
+		elseif statement.__tag == 'GotoStatement' then
+			out = getIndentation(statement) .. "goto " .. statement.label .. " "
+		elseif statement.__tag == 'Comment' then
 			if statement.CommentType == 'Shebang' then
 				out = getIndentation(statement) .. statement.Data
 				--out = out .. EOL
@@ -333,17 +335,24 @@ local function Format_Beautify(ast)
 				out = getIndentation(statement) .. statement.Data
 				--out = out .. EOL
 			end
-		elseif statement.AstType == 'Eof' then
+		elseif statement.__tag == 'Eof' then
 			-- Ignore
 		else
-			print("Unknown AST Type: ", statement.AstType)
+			print("Unknown AST __tag: ", statement.__tag)
+			print(require("inspect")(statement))
+			print(debug.traceback())
 		end
 		return out
 	end
 
 	formatStatlist = function(statList)
 		local out = ''
-		for _, stat in pairs(statList.Body) do
+		for _, stat in pairs(statList) do
+			if next(stat) == nil then
+				print(require("inspect")(statList))
+				print(_)
+				error("dupa")
+			end
 			out = joinStatementsSafe(out, formatStatement(stat) .. " ")
 		end
 		return out
