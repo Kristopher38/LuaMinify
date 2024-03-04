@@ -1389,7 +1389,11 @@ local function ParseLua(src, options, hooks)
 		end
 
 		if tok:IsSymbol(';') then
-			tok:Get( stat.tokens )
+			if options.disableEmitTokenList then
+				tok:Get(nil)
+			else
+				tok:Get(stat.tokens)
+			end
 		end
 		return true, stat
 	end

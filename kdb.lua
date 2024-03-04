@@ -32,7 +32,7 @@ local lines = f:read("*all")
 local linesTable = split(lines, "\n")
 f:close()
 local ok, tree = parser(lines, {disableEmitLeadingWhite=true,
-                                disableEmitTokenList=false}, hooks)
+                                disableEmitTokenList=true}, hooks)
 
 if not ok then
     error(string.format("Error parsing %s: %s", argv[1], tree))
