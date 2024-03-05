@@ -1,4 +1,7 @@
 open import "prelude.ml"
+open import "amulet/exception.ml"
+open import "amulet/base/lua.ml"
+open import "lua/io.ml"
 open import "./rawarray.ml"
 
 type table_elem 'a 'b =
@@ -47,15 +50,75 @@ type stmt =
 type stmt_list <- rawarray stmt
 
 
-external val mock : unit -> expr stmt = "function() return require(\"mock\") end"
+external val parse_lua : string -> stmt_list = "function(s) local ok, ast = require(\"ParseLua\")(s) return ast end"
 
 external val inspect : _ -> unit = "function(x) print(require(\"inspect\")(x)) end"
 
+let parse_file filename =
+  let f = open_file filename Read_m in
+  let lines = read_all f in
+  match lines with
+  | None -> throw (IoError "fail")
+  | Some str -> parse_lua str
 
-let _ = match mock () with
-| UnopExpr {rhs = CallExpr {base = MemberExpr {base, ident, indexer}, args}, op, op_prec} ->
-  iter (fun arg -> match arg with
-  | StringExpr {value} -> put_line value
-  | VarExpr {name} -> put_line name
-  | _ -> put_line "other_expr") args
-| _ -> put_line "other"
+let delim f del arr =
+  foldr (fun elem acc -> (f elem) ^ (if acc <> "" then del else " ") ^ acc) "" arr
+
+let delim_comma f =
+  delim f ", "
+
+let rec string_of_expr _ = "<expr> "
+
+and string_of_func_def _ = "<funcdef> "
+
+and string_of_stmt stmt = match stmt with
+| IfStatement {clauses, else_body} -> 
+  (foldl (fun acc {cond, body} -> 
+    acc
+    ^ (if acc == "" then "if " else "elseif ") 
+    ^ string_of_expr cond
+    ^ "then "
+    ^ string_of_stmt_list body
+    ^ " "
+  ) "" clauses)
+  ^ match else_body with
+  | Some body -> "else " ^ string_of_stmt_list body
+  | None -> ""
+  ^ "end "
+| WhileStatement {cond, body} ->
+  "while " ^ string_of_expr cond ^ "do " ^ string_of_stmt_list body ^ "end "
+| DoStatement {body} ->
+  "do " ^ string_of_stmt_list body ^ "end "
+| NumericForStatement {var, start, finish, step, body} ->
+  "for " ^ var ^ " = " ^ string_of_expr start ^ ", " ^ string_of_expr finish
+  ^ (match step with
+  | Some e -> ", " ^ string_of_expr e
+  | None -> "")
+  ^ "do " ^ string_of_stmt_list body ^ "end "
+| GenericForStatement {var_list, generators, body} ->
+  "for "
+  ^ (delim_comma (fun x -> x) var_list) ^ "in "
+  ^ (delim_comma string_of_expr generators) ^ "do "
+  ^ string_of_stmt_list body ^ "end "
+| RepeatStatement {cond, body} ->
+  "repeat " ^ string_of_stmt_list body ^ "until " ^ string_of_expr cond
+| FunctionStatement {name, is_local, f} ->
+  (if is_local then "local " else "") ^ "function " ^ name ^ (string_of_func_def f)
+| LocalStatement {names, init_exprs} ->
+  "local " ^ (delim_comma (fun x -> x) names) ^ "= " ^ (delim_comma string_of_expr init_exprs)
+| LabelStatement {label} -> "::" ^ label ^ "::"
+| ReturnStatement {args} ->
+  "return " ^ (delim_comma string_of_expr args)
+| BreakStatement -> "break "
+| GotoStatement {label} -> "goto " ^ label
+| AssignmentStatement {lhs, rhs} ->
+  string_of_expr lhs ^ "= " ^ string_of_expr rhs
+| CallStatement {base, args} ->
+  string_of_expr base ^ "(" ^ (delim_comma string_of_expr args) ^ ")"
+| Eof -> ""
+
+and string_of_stmt_list stmt_list = foldl (fun acc stmt -> acc ^ "\n" ^ (string_of_stmt stmt)) "" stmt_list
+
+let _ =
+  let ast = parse_file "kdb.lua" in
+  iter (fun x -> put_line (string_of_stmt x)) ast

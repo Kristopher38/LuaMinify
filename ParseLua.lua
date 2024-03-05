@@ -1395,7 +1395,7 @@ local function ParseLua(src, options, hooks)
 				tok:Get(stat.tokens)
 			end
 		end
-		return true, stat
+		return true, setmetatable(stat, amuletRecordMt)
 	end
 
 
