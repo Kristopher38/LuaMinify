@@ -43,7 +43,7 @@ type stmt =
 | ReturnStatement of {args: rawarray (expr stmt)}
 | BreakStatement
 | GotoStatement of {label: string}
-| AssignmentStatement of {lhs: expr stmt, rhs: expr stmt}
+| AssignmentStatement of {lhs: rawarray (expr stmt), rhs: rawarray (expr stmt)}
 | CallStatement of func_call expr stmt
 | Eof
 
@@ -67,9 +67,35 @@ let delim f del arr =
 let delim_comma f =
   delim f ", "
 
-let rec string_of_expr _ = "<expr> "
+let rec string_of_expr expr = match expr with
+| FunctionExpr f -> string_of_func_def f
+| ParenExpr {inner} -> "(" ^ string_of_expr inner ^ ") "
+| VarExpr {name} -> name ^ " "
+| MemberExpr {base, indexer, ident} -> (string_of_expr base) ^ indexer ^ ident ^ " "
+| IndexExpr {base, index} -> (string_of_expr base) ^ "[" ^ (string_of_expr index) ^ "] "
+| CallExpr fcall -> string_of_func_call fcall
+| StringCallExpr {base, arg} -> (string_of_expr base) ^ "" ^ arg ^ " "
+| TableCallExpr {base, arg} -> (string_of_expr base) ^ (string_of_expr arg)
+| NumberExpr {value} -> string_of_int value ^ " "
+| StringExpr {value} -> "" ^ value ^ " "
+| NilExpr -> "nil "
+| BooleanExpr {value} -> if value then "true " else "false "
+| DotsExpr -> "... "
+| ConstructorExpr {entry_list} -> "{" ^ delim_comma string_of_table_elem entry_list ^ "} "
+| UnopExpr {rhs, op, op_prec} -> op ^ " " ^ string_of_expr rhs
+| BinopExpr {lhs, op, op_prec, rhs} -> string_of_expr lhs ^ op ^ " " ^ string_of_expr rhs
 
-and string_of_func_def _ = "<funcdef> "
+and string_of_func_def {args, vararg, body} =
+  "(" ^ delim_comma (fun x -> x) args ^ if vararg then ", ..." else "" ^ ")"
+  ^ string_of_stmt_list body ^ "end "
+
+and string_of_func_call {base, args} =
+  string_of_expr base ^ "(" ^ delim_comma string_of_expr args ^ ")"
+
+and string_of_table_elem e = match e with
+| Key {key, value} -> "[" ^ string_of_expr key ^ "]=" ^ string_of_expr value
+| KeyString {key, value} -> key ^ "=" ^ string_of_expr value
+| Value {value} -> string_of_expr value
 
 and string_of_stmt stmt = match stmt with
 | IfStatement {clauses, else_body} -> 
@@ -112,7 +138,7 @@ and string_of_stmt stmt = match stmt with
 | BreakStatement -> "break "
 | GotoStatement {label} -> "goto " ^ label
 | AssignmentStatement {lhs, rhs} ->
-  string_of_expr lhs ^ "= " ^ string_of_expr rhs
+  delim_comma string_of_expr lhs ^ "= " ^ delim_comma string_of_expr rhs
 | CallStatement {base, args} ->
   string_of_expr base ^ "(" ^ (delim_comma string_of_expr args) ^ ")"
 | Eof -> ""
@@ -120,5 +146,5 @@ and string_of_stmt stmt = match stmt with
 and string_of_stmt_list stmt_list = foldl (fun acc stmt -> acc ^ "\n" ^ (string_of_stmt stmt)) "" stmt_list
 
 let _ =
-  let ast = parse_file "kdb.lua" in
+  let ast = parse_file "ParseLua.lua" in
   iter (fun x -> put_line (string_of_stmt x)) ast
