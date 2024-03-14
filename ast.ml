@@ -37,7 +37,7 @@ type stmt =
 | NumericForStatement of {var: string, start: expr stmt, finish: expr stmt, step: option (expr stmt), body: rawarray stmt}
 | GenericForStatement of {var_list: rawarray string, generators: rawarray (expr stmt), body: rawarray stmt}
 | RepeatStatement of {cond: expr stmt, body: rawarray stmt}
-| FunctionStatement of {name: string, is_local: bool, f: func_def stmt}
+| FunctionStatement of {name: expr stmt, is_local: bool, f: func_def stmt}
 | LocalStatement of {names: rawarray string, init_exprs: rawarray (expr stmt)}
 | LabelStatement of {label: string}
 | ReturnStatement of {args: rawarray (expr stmt)}
@@ -50,7 +50,7 @@ type stmt =
 type stmt_list <- rawarray stmt
 
 
-external val parse_lua : string -> stmt_list = "function(s) local ok, ast = require(\"ParseLua\")(s) return ast end"
+external val parse_lua : string -> stmt_list = "function(s) local ok, ast = require(\"ParseLua\")(s, {disableEmitLeadingWhite=true, disableEmitTokenList=true}) return ast end"
 
 external val inspect : _ -> unit = "function(x) print(require(\"inspect\")(x)) end"
 
@@ -68,7 +68,7 @@ let delim_comma f =
   delim f ", "
 
 let rec string_of_expr expr = match expr with
-| FunctionExpr f -> string_of_func_def f
+| FunctionExpr f -> "function" ^ string_of_func_def f
 | ParenExpr {inner} -> "(" ^ string_of_expr inner ^ ") "
 | VarExpr {name} -> name ^ " "
 | MemberExpr {base, indexer, ident} -> (string_of_expr base) ^ indexer ^ ident ^ " "
@@ -86,8 +86,10 @@ let rec string_of_expr expr = match expr with
 | BinopExpr {lhs, op, op_prec, rhs} -> string_of_expr lhs ^ op ^ " " ^ string_of_expr rhs
 
 and string_of_func_def {args, vararg, body} =
-  "(" ^ delim_comma (fun x -> x) args ^ if vararg then ", ..." else "" ^ ")"
-  ^ string_of_stmt_list body ^ "end "
+  "(" ^ delim_comma (fun x -> x) args
+  ^ (if vararg then
+      (if (length args) <> 0 then ", " else "") ^ "..." else "")
+  ^ ")" ^ string_of_stmt_list body ^ "end "
 
 and string_of_func_call {base, args} =
   string_of_expr base ^ "(" ^ delim_comma string_of_expr args ^ ")"
@@ -129,9 +131,10 @@ and string_of_stmt stmt = match stmt with
 | RepeatStatement {cond, body} ->
   "repeat " ^ string_of_stmt_list body ^ "until " ^ string_of_expr cond
 | FunctionStatement {name, is_local, f} ->
-  (if is_local then "local " else "") ^ "function " ^ name ^ (string_of_func_def f)
+  (if is_local then "local " else "") ^ "function " ^ string_of_expr name ^ (string_of_func_def f)
 | LocalStatement {names, init_exprs} ->
-  "local " ^ (delim_comma (fun x -> x) names) ^ "= " ^ (delim_comma string_of_expr init_exprs)
+  "local " ^ (delim_comma (fun x -> x) names)
+  ^ if (length init_exprs) <> 0 then "= " ^ (delim_comma string_of_expr init_exprs) else ""
 | LabelStatement {label} -> "::" ^ label ^ "::"
 | ReturnStatement {args} ->
   "return " ^ (delim_comma string_of_expr args)

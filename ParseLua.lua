@@ -1242,7 +1242,10 @@ local function ParseLua(src, options, hooks)
 					return false, GenerateError("Function name expected")
 				end
 				local savedp = #curScopeVars
-				local name = tok:Get(tokenList).Data
+				local name = setmetatable({
+					__tag = "VarExpr",
+					name = tok:Get(tokenList).Data
+				}, amuletRecordMt)
 				addVar(name)
 				--
 				local st, func = ParseFunctionArgsAndBody(tokenList)

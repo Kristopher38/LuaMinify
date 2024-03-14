@@ -265,11 +265,7 @@ local function Format_Beautify(ast)
 			end
 			out = joinStatementsSafe(out, "function ")
 			out = getIndentation(statement) .. out
-			if statement.is_local then
-				out = out..statement.name
-			else
-				out = out..formatExpr(statement.name)
-			end
+			out = out..formatExpr(statement.name)
 			out = out.."("
 			if #statement.f.args > 0 then
 				for i = 1, #statement.f.args do
