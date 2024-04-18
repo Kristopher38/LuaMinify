@@ -22,7 +22,19 @@ local Keywords = lookupify{
 	'return', 'then', 'true', 'until', 'while',
 };
 
-local function LexLua(src, options)
+local Parser = {}
+local haxe = {}
+
+function Parser.Init(array, option, stmt, expr, tableElem, functionDef)
+	haxe.array = array
+	haxe.option = option
+	haxe.stmt = stmt
+	haxe.expr = expr
+	haxe.tableElem = tableElem
+	haxe.functionDef = functionDef
+end
+
+function Parser.LexLua(src, options)
 	--token dump
 	options = options or {}
 	local tokens = {}
@@ -458,26 +470,7 @@ local function LexLua(src, options)
 end
 
 
-local amuletRecordMt = {
-	__index = function(t, k)
-		if k == 1 then
-			return t
-		else
-            error(string.format("attempting to index with nonexistent key %s in table %s", k, require("inspect")(t)))
-			return nil
-		end
-	end,
-	__newindex = function(t, k, v)
-		if k == 1 then
-			error(string.format("assignment to [1] in table %s", require("inspect")(t)))
-		else
-			rawset(t, k, v)
-		end
-	end
-}
-
-
-local function ParseLua(src, options, hooks)
+function Parser.ParseLua(src, options, hooks)
 	options = options or {}
 	hooks = hooks or {}
 	hooks.statement = hooks.statement or function(statement, ...) return {statement} end
@@ -486,7 +479,7 @@ local function ParseLua(src, options, hooks)
 
 	local st, tok
 	if type(src) ~= 'table' then
-		st, tok = LexLua(src, options)
+		st, tok = Parser.LexLua(src, options)
 	else
 		st, tok = true, src
 	end
@@ -551,13 +544,13 @@ local function ParseLua(src, options, hooks)
 		end
 
 		--arg list
-		local argList = {}
+		local argList = haxe.array.new()
 		local isVarArg = false
 		local savedp = #curScopeVars
 		while not tok:ConsumeSymbol(')', tokenList) do
 			if tok:Is('Ident') then
 				local arg = tok:Get(tokenList).Data
-				argList[#argList+1] = arg
+				argList:push(arg)
 				addVar(arg)
 				if not tok:ConsumeSymbol(',', tokenList) then
 					if tok:ConsumeSymbol(')', tokenList) then
@@ -578,12 +571,8 @@ local function ParseLua(src, options, hooks)
 			end
 		end
 
-		local nodeFunc = setmetatable({}, amuletRecordMt)
-		nodeFunc.args = argList
-		nodeFunc.vararg    = isVarArg
-
 		--body
-		local st, body = ParseStatementList(nodeFunc)
+		local st, body = ParseStatementList()
 		if not st then return false, body end
 
 		--end
@@ -591,7 +580,7 @@ local function ParseLua(src, options, hooks)
 			return false, GenerateError("`end` expected after function body")
 		end
 
-		nodeFunc.body = body
+		local nodeFunc = haxe.functionDef.FuncDef(argList, isVarArg, body)
 		if not options.disableEmitTokenList then
 			nodeFunc.tokens    = tokenList
 		end
@@ -602,89 +591,74 @@ local function ParseLua(src, options, hooks)
 	end
 
 
-	function ParsePrimaryExpr(parent)
+	function ParsePrimaryExpr()
 		local tokenList = {}
 
 		if tok:ConsumeSymbol('(', tokenList) then
-			local st, ex = ParseExpr(parent)
-			if not st then return false, ex end
+			local st, inner = ParseExpr()
+			if not st then return false, inner end
 			if not tok:ConsumeSymbol(')', tokenList) then
 				return false, GenerateError("`)` Expected.")
 			end
-			local parensExp = setmetatable({}, amuletRecordMt)
-			parensExp.__tag   = 'ParenExpr'
-			parensExp.inner     = ex
-			if not options.disableEmitTokenList then
-				parensExp.tokens    = tokenList
-			end
-			parensExp.first_line = getFirstLine(tokenList)
-			return true, parensExp
+			rawset(inner, "parenthesized", true)
+			return true, inner
 		elseif tok:Is('Ident') then
 			local id = tok:Get(tokenList)
 			--
-			local nodePrimExp = setmetatable({}, amuletRecordMt)
-			nodePrimExp.__tag   = 'VarExpr'
-			nodePrimExp.name      = id.Data
+			local nodePrimExp = haxe.expr.VarExpr(id.Data)
 			if not options.disableEmitTokenList then
 				nodePrimExp.tokens    = tokenList
 			end
-			nodePrimExp.first_line = getFirstLine(tokenList)
+			rawset(nodePrimExp, "first_line", getFirstLine(tokenList))
 			--
-			return true, hooks.varexpr(nodePrimExp, parent)
+			return true, hooks.varexpr(nodePrimExp)
 		else
 			return false, GenerateError("primary expression expected")
 		end
 	end
 
-	function ParseSuffixedExpr(onlyDotColon, parent)
+	function ParseSuffixedExpr(onlyDotColon)
 		--base primary expression
-		local st, prim = ParsePrimaryExpr(parent)
+		local st, prim = ParsePrimaryExpr()
 		if not st then return false, prim end
 		--
 		while true do
 			local tokenList = {}
 
 			if tok:IsSymbol('.') or tok:IsSymbol(':') then
-				local symb = tok:Get(tokenList).Data
+				local indexer = tok:Get(tokenList).Data
 				if not tok:Is('Ident') then
 					return false, GenerateError("<Ident> expected.")
 				end
-				local id = tok:Get(tokenList).Data
-				local nodeIndex = setmetatable({}, amuletRecordMt)
-				nodeIndex.__tag  = 'MemberExpr'
-				nodeIndex.base     = prim
-				nodeIndex.indexer  = symb
-				nodeIndex.ident    = id
+				local ident = tok:Get(tokenList).Data
+				local nodeIndex = haxe.expr.MemberExpr(prim, indexer, ident)
 				if not options.disableEmitTokenList then
 					nodeIndex.tokens   = tokenList
 				end
-				nodeIndex.first_line = getFirstLine(tokenList)
+				rawset(nodeIndex, "first_line", getFirstLine(tokenList))
 				--
 				prim = nodeIndex
 
 			elseif not onlyDotColon and tok:ConsumeSymbol('[', tokenList) then
-				local st, ex = ParseExpr(parent)
-				if not st then return false, ex end
+				local st, index = ParseExpr()
+				if not st then return false, index end
 				if not tok:ConsumeSymbol(']', tokenList) then
 					return false, GenerateError("`]` expected.")
 				end
-				local nodeIndex = setmetatable({}, amuletRecordMt)
-				nodeIndex.__tag  = 'IndexExpr'
-				nodeIndex.base     = prim
-				nodeIndex.index    = ex
+				local nodeIndex = haxe.expr.IndexExpr(prim, index)
 				if not options.disableEmitTokenList then
 					nodeIndex.tokens   = tokenList
 				end
-				nodeIndex.first_line = getFirstLine(tokenList)
+				rawset(nodeIndex, "first_line", getFirstLine(tokenList))
 				--
 				prim = nodeIndex
 
 			elseif not onlyDotColon and tok:ConsumeSymbol('(', tokenList) then
-				local args = {}
+				local args = haxe.array.new()
 				while not tok:ConsumeSymbol(')', tokenList) do
-					local st, ex = ParseExpr(parent)
+					local st, ex = ParseExpr()
 					if not st then return false, ex end
-					args[#args+1] = ex
+					args:push(ex)
 					if not tok:ConsumeSymbol(',', tokenList) then
 						if tok:ConsumeSymbol(')', tokenList) then
 							break
@@ -693,44 +667,40 @@ local function ParseLua(src, options, hooks)
 						end
 					end
 				end
-				local nodeCall = setmetatable({}, amuletRecordMt)
-				nodeCall.__tag   = 'CallExpr'
-				nodeCall.base      = prim
-				nodeCall.args = args
+				local nodeCall = haxe.expr.CallExpr(prim, args)
 				if not options.disableEmitTokenList then
 					nodeCall.tokens    = tokenList
 				end
-				nodeCall.first_line = getFirstLine(tokenList)
+				rawset(nodeCall, "first_line", getFirstLine(tokenList))
 				--
 				prim = nodeCall
 
 			elseif not onlyDotColon and tok:Is('String') then
 				--string call
-				local nodeCall = setmetatable({}, amuletRecordMt)
-				nodeCall.__tag    = 'StringCallExpr'
-				nodeCall.base       = prim
-				nodeCall.arg  = tok:Get(tokenList).Data
+				local args = haxe.array.new()
+				args:push(tok:Get(tokenList).Data)
+				local nodeCall = haxe.expr.CallExpr(prim, args)
 				if not options.disableEmitTokenList then
 					nodeCall.tokens     = tokenList
 				end
-				nodeCall.first_line = getFirstLine(tokenList)
+				rawset(nodeCall, "first_line", getFirstLine(tokenList))
 				--
 				prim = nodeCall
 
 			elseif not onlyDotColon and tok:IsSymbol('{') then
 				--table call
-				local st, ex = ParseSimpleExpr(parent)
-				-- TODO: ParseExpr(parent) parses the table AND and any following binary expressions.
+				local st, arg = ParseSimpleExpr()
+				-- TODO: ParseExpr() parses the table AND and any following binary expressions.
 				-- We just want the table
-				if not st then return false, ex end
-				local nodeCall = setmetatable({}, amuletRecordMt)
-				nodeCall.__tag   = 'TableCallExpr'
-				nodeCall.base      = prim
-				nodeCall.arg = ex
+				if not st then return false, arg end
+
+				local args = haxe.array.new()
+				args:push(arg)
+				local nodeCall = haxe.expr.CallExpr(prim, args)
 				if not options.disableEmitTokenList then
 					nodeCall.tokens    = tokenList
 				end
-				nodeCall.first_line = prim.first_line
+				rawset(nodeCall, "first_line", prim.first_line)
 				--
 				prim = nodeCall
 
@@ -742,67 +712,57 @@ local function ParseLua(src, options, hooks)
 	end
 
 
-	function ParseSimpleExpr(parent)
+	function ParseSimpleExpr()
 		local tokenList = {}
 
 		if tok:Is('Number') then
-			local nodeNum = setmetatable({}, amuletRecordMt)
-			nodeNum.__tag = 'NumberExpr'
-			nodeNum.value   = tonumber(tok:Get(tokenList).Data)
+			local nodeNum = haxe.expr.NumberExpr(tonumber(tok:Get(tokenList).Data))
 			if not options.disableEmitTokenList then
 				nodeNum.tokens  = tokenList
 			end
-			nodeNum.first_line = getFirstLine(tokenList)
+			rawset(nodeNum, "first_line", getFirstLine(tokenList))
 			return true, nodeNum
 
 		elseif tok:Is('String') then
-			local nodeStr = setmetatable({}, amuletRecordMt)
-			nodeStr.__tag = 'StringExpr'
-			nodeStr.value   = tok:Get(tokenList).Data
+			local nodeStr = haxe.expr.StringExpr(tok:Get(tokenList).Data)
 			if not options.disableEmitTokenList then
 				nodeStr.tokens  = tokenList
 			end
-			nodeStr.first_line = getFirstLine(tokenList)
+			rawset(nodeStr, "first_line", getFirstLine(tokenList))
 			return true, nodeStr
 
 		elseif tok:ConsumeKeyword('nil', tokenList) then
-			local nodeNil = setmetatable({}, amuletRecordMt)
-			nodeNil.__tag = 'NilExpr'
+			local nodeNil = haxe.expr.NilExpr
 			if not options.disableEmitTokenList then
 				nodeNil.tokens  = tokenList
 			end
-			nodeNil.first_line = getFirstLine(tokenList)
+			rawset(nodeNil, "first_line", getFirstLine(tokenList))
 			return true, nodeNil
 
 		elseif tok:IsKeyword('false') or tok:IsKeyword('true') then
-			local nodeBoolean = setmetatable({}, amuletRecordMt)
-			nodeBoolean.__tag = 'BooleanExpr'
-			nodeBoolean.value   = (tok:Get(tokenList).Data == 'true')
+			local nodeBoolean = haxe.expr.BooleanExpr(tok:Get(tokenList).Data == 'true')
 			if not options.disableEmitTokenList then
 				nodeBoolean.tokens  = tokenList
 			end
-			nodeBoolean.first_line = getFirstLine(tokenList)
+			rawset(nodeBoolean, "first_line", getFirstLine(tokenList))
 			return true, nodeBoolean
 
 		elseif tok:ConsumeSymbol('...', tokenList) then
-			local nodeDots = setmetatable({}, amuletRecordMt)
-			nodeDots.__tag  = 'DotsExpr'
+			local nodeDots = haxe.expr.DotsExpr
 			if not options.disableEmitTokenList then
 				nodeDots.tokens   = tokenList
 			end
-			nodeDots.first_line = getFirstLine(tokenList)
+			rawset(nodeDots, "first_line", getFirstLine(tokenList))
 			return true, nodeDots
 
 		elseif tok:ConsumeSymbol('{', tokenList) then
-			local v = setmetatable({}, amuletRecordMt)
-			v.__tag = 'ConstructorExpr'
-			v.entry_list = {}
+			local entry_list = haxe.array.new()
 			--
 			while true do
 				if tok:IsSymbol('[') then
 					--key
 					tok:Get(tokenList)
-					local st, key = ParseExpr(parent)
+					local st, key = ParseExpr()
 					if not st then
 						return false, GenerateError("Key expr Expected")
 					end
@@ -812,16 +772,11 @@ local function ParseLua(src, options, hooks)
 					if not tok:ConsumeSymbol('=', tokenList) then
 						return false, GenerateError("`=` Expected")
 					end
-					local st, value = ParseExpr(parent)
+					local st, value = ParseExpr()
 					if not st then
 						return false, GenerateError("value expr Expected")
 					end
-					v.entry_list[#v.entry_list+1] = setmetatable({
-						__tag  = 'Key';
-						key   = key;
-						value = value;
-					}, amuletRecordMt)
-
+					entry_list:push(haxe.tableElem.Key(key, value))
 				elseif tok:Is('Ident') then
 					--value or key
 					local lookahead = tok:Peek(1)
@@ -831,38 +786,26 @@ local function ParseLua(src, options, hooks)
 						if not tok:ConsumeSymbol('=', tokenList) then
 							return false, GenerateError("`=` Expected")
 						end
-						local st, value = ParseExpr(parent)
+						local st, value = ParseExpr()
 						if not st then
 							return false, GenerateError("value expr Expected")
 						end
-						v.entry_list[#v.entry_list+1] = setmetatable({
-							__tag  = 'KeyString';
-							key   = key.Data;
-							value = value;
-						}, amuletRecordMt)
-
+						entry_list:push(haxe.tableElem.KeyString(key.Data, value))
 					else
 						--we are a value
-						local st, value = ParseExpr(parent)
+						local st, value = ParseExpr()
 						if not st then
 							return false, GenerateError("value Exected")
 						end
-						v.entry_list[#v.entry_list+1] = setmetatable({
-							__tag = 'Value';
-							value = value;
-						}, amuletRecordMt)
-
+						entry_list:push(haxe.tableElem.Value(value))
 					end
 				elseif tok:ConsumeSymbol('}', tokenList) then
 					break
 
 				else
 					--value
-					local st, value = ParseExpr(parent)
-					v.entry_list[#v.entry_list+1] = setmetatable({
-						__tag = 'Value';
-						value = value;
-					}, amuletRecordMt)
+					local st, value = ParseExpr()
+					entry_list:push(haxe.tableElem.Value(value))
 					if not st then
 						return false, GenerateError("value Expected")
 					end
@@ -876,22 +819,23 @@ local function ParseLua(src, options, hooks)
 					return false, GenerateError("`}` or table entry Expected")
 				end
 			end
+			local constructor = haxe.expr.ConstructorExpr(entry_list)
 			if not options.disableEmitTokenList then
-				v.tokens  = tokenList
+				constructor.tokens  = tokenList
 			end
-			v.first_line = getFirstLine(tokenList)
-			return true, v
+			rawset(constructor, "first_line", getFirstLine(tokenList))
+			return true, constructor
 
 		elseif tok:ConsumeKeyword('function', tokenList) then
 			local st, func = ParseFunctionArgsAndBody(tokenList)
 			if not st then return false, func end
 			--
-			func.__tag   = 'FunctionExpr'
-			func.first_line = getFirstLine(tokenList)
-			return true, func
+			local funcExpr = haxe.expr.FunctionExpr(func)
+			rawset(funcExpr, "first_line", getFirstLine(tokenList))
+			return true, funcExpr
 
 		else
-			return ParseSuffixedExpr(false, parent)
+			return ParseSuffixedExpr(false)
 		end
 	end
 
@@ -915,26 +859,22 @@ local function ParseLua(src, options, hooks)
 		['and'] = {2,2};
 		['or'] = {1,1};
 	}
-	function ParseSubExpr(level, parent)
+	function ParseSubExpr(level)
 		--base item, possibly with unop prefix
 		local st, exp
 		if unops[tok:Peek().Data] then
 			local tokenList = {}
 			local op = tok:Get(tokenList).Data
-			st, exp = ParseSubExpr(unopprio, parent)
+			st, exp = ParseSubExpr(unopprio)
 			if not st then return false, exp end
-			local nodeEx = setmetatable({}, amuletRecordMt)
-			nodeEx.__tag = 'UnopExpr'
-			nodeEx.rhs     = exp
-			nodeEx.op      = op
-			nodeEx.op_prec = unopprio
+			local nodeEx = haxe.expr.UnopExpr(exp, op, unopprio)
 			if not options.disableEmitTokenList then
 				nodeEx.tokens  = tokenList
 			end
-			nodeEx.first_line = getFirstLine(tokenList)
+			rawset(nodeEx, "first_line", getFirstLine(tokenList))
 			exp = nodeEx
 		else
-			st, exp = ParseSimpleExpr(parent)
+			st, exp = ParseSimpleExpr()
 			if not st then return false, exp end
 		end
 
@@ -944,18 +884,13 @@ local function ParseLua(src, options, hooks)
 			if prio and prio[1] > level then
 				local tokenList = {}
 				local op = tok:Get(tokenList).Data
-				local st, rhs = ParseSubExpr(prio[2], parent)
+				local st, rhs = ParseSubExpr(prio[2])
 				if not st then return false, rhs end
-				local nodeEx = setmetatable({}, amuletRecordMt)
-				nodeEx.__tag = 'BinopExpr'
-				nodeEx.lhs     = exp
-				nodeEx.op      = op
-				nodeEx.op_prec = prio[1]
-				nodeEx.rhs     = rhs
+				local nodeEx = haxe.expr.BinopExpr(exp, op, prio[1], rhs)
 				if not options.disableEmitTokenList then
 					nodeEx.tokens  = tokenList
 				end
-				nodeEx.first_line = getFirstLine(tokenList)
+				rawset(nodeEx, "first_line", getFirstLine(tokenList))
 				--
 				exp = nodeEx
 			else
@@ -967,8 +902,8 @@ local function ParseLua(src, options, hooks)
 	end
 
 
-	ParseExpr = function(parent)
-		return ParseSubExpr(0, parent)
+	ParseExpr = function()
+		return ParseSubExpr(0)
 	end
 
 
@@ -976,34 +911,40 @@ local function ParseLua(src, options, hooks)
 		local stat = nil
 		local tokenList = {}
 		if tok:ConsumeKeyword('if', tokenList) then
-			--setup
-			local nodeIfStat = setmetatable({}, amuletRecordMt)
-			nodeIfStat.__tag = 'IfStatement'
-			nodeIfStat.clauses = {}
-			nodeIfStat.first_line = getFirstLine(tokenList)
+			local clauses = {}
 
 			--clauses
 			repeat
-				local st, nodeCond = ParseExpr(nodeIfStat)
+				local st, nodeCond = ParseExpr()
 				if not st then return false, nodeCond end
 				if not tok:ConsumeKeyword('then', tokenList) then
 					return false, GenerateError("`then` expected.")
 				end
-				local st, nodeBody = ParseStatementList(nodeIfStat)
+				local st, nodeBody = ParseStatementList()
 				if not st then return false, nodeBody end
-				nodeIfStat.clauses[#nodeIfStat.clauses+1] = {
-					cond = nodeCond;
-					body = nodeBody;
+				clauses[#clauses+1] = {
+					cond = nodeCond,
+					body = nodeBody,
 				}
 			until not tok:ConsumeKeyword('elseif', tokenList)
 
+			local elseBody
 			--else clause
 			if tok:ConsumeKeyword('else', tokenList) then
-				local st, nodeBody = ParseStatementList(nodeIfStat)
+				local st, nodeBody = ParseStatementList()
 				if not st then return false, nodeBody end
-				nodeIfStat.else_body = {__tag = "Some", nodeBody}
+				elseBody = nodeBody
 			else
-				nodeIfStat.else_body = {__tag = "None"}
+				elseBody = haxe.array.new()
+			end
+
+			-- construct a chain of if statements backwards going from the last else
+			local prevElseBody = elseBody
+			local nodeIfStat
+			for i = #clauses, 1, -1 do
+				nodeIfStat = haxe.stmt.IfStatement(clauses[i].cond, clauses[i].body, prevElseBody)
+				prevElseBody = haxe.array.new()
+				prevElseBody:push(nodeIfStat)
 			end
 
 			--end
@@ -1016,13 +957,8 @@ local function ParseLua(src, options, hooks)
 			stat = nodeIfStat
 
 		elseif tok:ConsumeKeyword('while', tokenList) then
-			--setup
-			local nodeWhileStat = setmetatable({}, amuletRecordMt)
-			nodeWhileStat.__tag = 'WhileStatement'
-			nodeWhileStat.first_line = getFirstLine(tokenList)
-
 			--condition
-			local st, nodeCond = ParseExpr(nodeWhileStat)
+			local st, nodeCond = ParseExpr()
 			if not st then return false, nodeCond end
 
 			--do
@@ -1031,7 +967,7 @@ local function ParseLua(src, options, hooks)
 			end
 
 			--body
-			local st, nodeBody = ParseStatementList(nodeWhileStat)
+			local st, nodeBody = ParseStatementList()
 			if not st then return false, nodeBody end
 
 			--end
@@ -1040,8 +976,7 @@ local function ParseLua(src, options, hooks)
 			end
 
 			--return
-			nodeWhileStat.cond = nodeCond
-			nodeWhileStat.body      = nodeBody
+			local nodeWhileStat = haxe.stmt.WhileStatement(nodeCond, nodeBody)
 			if not options.disableEmitTokenList then
 				nodeWhileStat.tokens    = tokenList
 			end
@@ -1049,20 +984,17 @@ local function ParseLua(src, options, hooks)
 
 		elseif tok:ConsumeKeyword('do', tokenList) then
 			--do block
-			local nodeDoStat = setmetatable({}, amuletRecordMt)
-			nodeDoStat.__tag = 'DoStatement'
-
-			local st, nodeBlock = ParseStatementList(nodeDoStat)
+			local st, nodeBlock = ParseStatementList()
 			if not st then return false, nodeBlock end
 			if not tok:ConsumeKeyword('end', tokenList) then
 				return false, GenerateError("`end` expected.")
 			end
 
-			nodeDoStat.body    = nodeBlock
+			local nodeDoStat = haxe.stmt.DoStatement(nodeBlock)
 			if not options.disableEmitTokenList then
 				nodeDoStat.tokens  = tokenList
 			end
-			nodeDoStat.first_line = getFirstLine(tokenList)
+			rawset(nodeDoStat, "first_line", getFirstLine(tokenList))
 			stat = nodeDoStat
 
 		elseif tok:ConsumeKeyword('for', tokenList) then
@@ -1077,163 +1009,144 @@ local function ParseLua(src, options, hooks)
 				local forVar = baseVarName.Data
 				addVar(forVar)
 				--
-				local nodeFor = setmetatable({}, amuletRecordMt)
-				nodeFor.__tag  = 'NumericForStatement'
-				nodeFor.var = forVar
-
-				local st, startEx = ParseExpr(nodeFor)
-				nodeFor.start    = startEx
+				local st, startEx = ParseExpr()
 				if not st then return false, startEx end
 				if not tok:ConsumeSymbol(',', tokenList) then
 					return false, GenerateError("`,` Expected")
 				end
-				local st, endEx = ParseExpr(nodeFor)
-				nodeFor.finish      = endEx
+				local st, endEx = ParseExpr()
 				if not st then return false, endEx end
 				local st, stepEx;
 				if tok:ConsumeSymbol(',', tokenList) then
-					st, stepEx = ParseExpr(nodeFor)
+					st, stepEx = ParseExpr()
 					if not st then return false, stepEx end
-				end
-				if stepEx then
-					nodeFor.step = {__tag = "Some", stepEx}
-				else
-					nodeFor.step = {__tag = "None"}
 				end
 				if not tok:ConsumeKeyword('do', tokenList) then
 					return false, GenerateError("`do` expected")
 				end
 
-				local st, body = ParseStatementList(nodeFor)
+				local st, body = ParseStatementList()
 				if not st then return false, body end
 				if not tok:ConsumeKeyword('end', tokenList) then
 					return false, GenerateError("`end` expected")
 				end
 				flushScope(savedp)
 				--
-				nodeFor.body     = body
+				if stepEx then
+					stepEx = haxe.option.Some(stepEx)
+				else
+					stepEx = haxe.option.None
+				end
+				local nodeFor = haxe.stmt.NumericForStatement(forVar, startEx, endEx, stepEx, body)
 				if not options.disableEmitTokenList then
 					nodeFor.tokens   = tokenList
 				end
-				nodeFor.first_line = getFirstLine(tokenList)
+				rawset(nodeFor, "first_line", getFirstLine(tokenList))
 				stat = nodeFor
 			else
 				--generic for
 				--
 				local savedp = #curScopeVars
-				local varList = { baseVarName.Data }
+				local varList = haxe.array.new()
+				varList:push(baseVarName.Data)
 				addVar(baseVarName.Data)
 
-				local nodeFor = setmetatable({}, amuletRecordMt)
-				nodeFor.__tag      = 'GenericForStatement'
 				while tok:ConsumeSymbol(',', tokenList) do
 					if not tok:Is('Ident') then
 						return false, GenerateError("for variable expected.")
 					end
-					varList[#varList+1] = tok:Get(tokenList).Data
-					addVar(varList[#varList])
+					local var = tok:Get(tokenList).Data
+					varList:push(var)
+					addVar(var)
 				end
 				if not tok:ConsumeKeyword('in', tokenList) then
 					return false, GenerateError("`in` expected.")
 				end
-				nodeFor.var_list = varList
-				local generators = {}
-				local st, firstGenerator = ParseExpr(nodeFor)
+				local generators = haxe.array.new()
+				local st, firstGenerator = ParseExpr()
 				if not st then return false, firstGenerator end
-				generators[#generators+1] = firstGenerator
+				generators:push(firstGenerator)
 				while tok:ConsumeSymbol(',', tokenList) do
-					local st, gen = ParseExpr(nodeFor)
+					local st, gen = ParseExpr()
 					if not st then return false, gen end
-					generators[#generators+1] = gen
+					generators:push(gen)
 				end
 				if not tok:ConsumeKeyword('do', tokenList) then
 					return false, GenerateError("`do` expected.")
 				end
 
-				nodeFor.generators   = generators
-
-				local st, body = ParseStatementList(nodeFor)
+				local st, body = ParseStatementList()
 				if not st then return false, body end
 				if not tok:ConsumeKeyword('end', tokenList) then
 					return false, GenerateError("`end` expected.")
 				end
 				flushScope(savedp)
 				--
-				nodeFor.body         = body
+				local nodeFor = haxe.stmt.GenericForStatement(varList, generators, body)
 				if not options.disableEmitTokenList then
 					nodeFor.tokens       = tokenList
 				end
-				nodeFor.first_line = getFirstLine(tokenList)
+				rawset(nodeFor, "first_line", getFirstLine(tokenList))
 				stat = nodeFor
 			end
 
 		elseif tok:ConsumeKeyword('repeat', tokenList) then
-			local nodeRepeat = setmetatable({}, amuletRecordMt)
-			nodeRepeat.__tag   = 'RepeatStatement'
-			local st, body = ParseStatementList(nodeRepeat)
+			local st, body = ParseStatementList()
 			if not st then return false, body end
-			nodeRepeat.body      = body
 			--
 			if not tok:ConsumeKeyword('until', tokenList) then
 				return false, GenerateError("`until` expected.")
 			end
 			-- FIX: Used to parse in parent scope
 			-- Now parses in repeat scope
-			local st, cond = ParseExpr(nodeRepeat)
+			local st, cond = ParseExpr()
 			if not st then return false, cond end
 			--
-			nodeRepeat.cond = cond
+			local nodeRepeat = haxe.stmt.RepeatStatement(cond, body)
 			if not options.disableEmitTokenList then
 				nodeRepeat.tokens    = tokenList
 			end
-			nodeRepeat.first_line = getFirstLine(tokenList)
+			rawset(nodeRepeat, "first_line", getFirstLine(tokenList))
 			stat = nodeRepeat
 
 		elseif tok:ConsumeKeyword('function', tokenList) then
 			if not tok:Is('Ident') then
 				return false, GenerateError("Function name expected")
 			end
-			local st, name = ParseSuffixedExpr(true, setmetatable({__tag = "FunctionExpr"}, amuletRecordMt)) --true => only dots and colons
+			local st, name = ParseSuffixedExpr(true) --true => only dots and colons
 			if not st then return false, name end
 			--
 			local st, func = ParseFunctionArgsAndBody(tokenList)
 			if not st then return false, func end
 			--
-			stat = {
-				__tag = 'FunctionStatement',
-				name = name,
-				is_local = false,
-				f = func,
-				first_line = getFirstLine(tokenList)
-			}
+			stat = haxe.stmt.FunctionStatement(name, false, func)
+			rawset(stat, "first_line", getFirstLine(tokenList))
 
 		elseif tok:ConsumeKeyword('local', tokenList) then
 			if tok:Is('Ident') then
-				local nodeLocal = setmetatable({}, amuletRecordMt)
-				nodeLocal.__tag   = 'LocalStatement'
-				local varList = { tok:Get(tokenList).Data }
+				local varList = haxe.array.new()
+				varList:push(tok:Get(tokenList).Data)
 				while tok:ConsumeSymbol(',', tokenList) do
 					if not tok:Is('Ident') then
 						return false, GenerateError("local var name expected")
 					end
-					varList[#varList+1] = tok:Get(tokenList).Data
+					varList:push(tok:Get(tokenList).Data)
 				end
-				nodeLocal.names = varList
 
-				local initList = {}
+				local initList = haxe.array.new()
 				if tok:ConsumeSymbol('=', tokenList) then
 					repeat
-						local st, ex = ParseExpr(nodeLocal)
+						local st, ex = ParseExpr()
 						if not st then return false, ex end
-						initList[#initList+1] = ex
+						initList:push(ex)
 					until not tok:ConsumeSymbol(',', tokenList)
 				end
 
-				nodeLocal.init_exprs  = initList
+				local nodeLocal = haxe.stmt.LocalStatement(varList, initList)
 				if not options.disableEmitTokenList then
 					nodeLocal.tokens    = tokenList
 				end
-				nodeLocal.first_line = getFirstLine(tokenList)
+				rawset(nodeLocal, "first_line", getFirstLine(tokenList))
 				--
 				stat = nodeLocal
 
@@ -1242,23 +1155,16 @@ local function ParseLua(src, options, hooks)
 					return false, GenerateError("Function name expected")
 				end
 				local savedp = #curScopeVars
-				local name = setmetatable({
-					__tag = "VarExpr",
-					name = tok:Get(tokenList).Data
-				}, amuletRecordMt)
-				addVar(name)
+				local varName = tok:Get(tokenList).Data
+				local name = haxe.expr.VarExpr(varName)
+				addVar(varName)
 				--
 				local st, func = ParseFunctionArgsAndBody(tokenList)
 				if not st then return false, func end
 				flushScope(savedp)
 				-- 
-				stat = {
-					__tag = 'FunctionStatement',
-					name = name,
-					is_local = true,
-					f = func,
-					first_line = getFirstLine(tokenList)
-				}
+				stat = haxe.stmt.FunctionStatement(name, true, func)
+				rawset(stat, "first_line", getFirstLine(tokenList))
 
 			else
 				return false, GenerateError("local var or function def expected")
@@ -1272,45 +1178,40 @@ local function ParseLua(src, options, hooks)
 			if not tok:ConsumeSymbol('::', tokenList) then
 				return false, GenerateError("`::` expected")
 			end
-			local nodeLabel = setmetatable({}, amuletRecordMt)
-			nodeLabel.__tag = 'LabelStatement'
-			nodeLabel.label   = label
+			local nodeLabel = haxe.stmt.LabelStatement(label)
 			if not options.disableEmitTokenList then
 				nodeLabel.tokens  = tokenList
 			end
-			nodeLabel.first_line = getFirstLine(tokenList)
+			rawset(nodeLabel, "first_line", getFirstLine(tokenList))
 			stat = nodeLabel
 
 		elseif tok:ConsumeKeyword('return', tokenList) then
-			local nodeReturn = setmetatable({}, amuletRecordMt)
-			nodeReturn.__tag   = 'ReturnStatement'
-			local exList = {}
+			local exList = haxe.array.new()
 			if not tok:IsKeyword('end') then
-				local st, firstEx = ParseExpr(nodeReturn)
+				local st, firstEx = ParseExpr()
 				if st then
-					exList[1] = firstEx
+					exList:push(firstEx)
 					while tok:ConsumeSymbol(',', tokenList) do
-						local st, ex = ParseExpr(nodeReturn)
+						local st, ex = ParseExpr()
 						if not st then return false, ex end
-						exList[#exList+1] = ex
+						exList:push(ex)
 					end
 				end
 			end
 
-			nodeReturn.args = exList
+			local nodeReturn = haxe.stmt.ReturnStatement(exList)
 			if not options.disableEmitTokenList then
 				nodeReturn.tokens    = tokenList
 			end
-			nodeReturn.first_line = getFirstLine(tokenList)
+			rawset(nodeReturn, "first_line", getFirstLine(tokenList))
 			stat = nodeReturn
 
 		elseif tok:ConsumeKeyword('break', tokenList) then
-			local nodeBreak = setmetatable({}, amuletRecordMt)
-			nodeBreak.__tag = 'BreakStatement'
+			local nodeBreak = haxe.stmt.BreakStatement
 			if not options.disableEmitTokenList then
 				nodeBreak.tokens  = tokenList
 			end
-			nodeBreak.first_line = getFirstLine(tokenList)
+			rawset(nodeBreak, "first_line", getFirstLine(tokenList))
 			stat = nodeBreak
 
 		elseif tok:ConsumeKeyword('goto', tokenList) then
@@ -1318,37 +1219,33 @@ local function ParseLua(src, options, hooks)
 				return false, GenerateError("label expected")
 			end
 			local label = tok:Get(tokenList).Data
-			local nodeGoto = setmetatable({}, amuletRecordMt)
-			nodeGoto.__tag = 'GotoStatement'
-			nodeGoto.label   = label
+			local nodeGoto = haxe.stmt.GotoStatement(label)
 			if not options.disableEmitTokenList then
 				nodeGoto.tokens  = tokenList
 			end
-			nodeGoto.first_line = getFirstLine(tokenList)
+			rawset(nodeGoto, "first_line", getFirstLine(tokenList))
 			stat = nodeGoto
 
 		else
 			--statementParseExpr
-			local st, suffixed = ParseSuffixedExpr(false, {})
+			local st, suffixed = ParseSuffixedExpr(false)
 			if not st then return false, suffixed end
 
 			--assignment or call?
 			if tok:IsSymbol(',') or tok:IsSymbol('=') then
-				local nodeAssign = setmetatable({}, amuletRecordMt)
-				nodeAssign.__tag = 'AssignmentStatement'
 				--check that it was not parenthesized, making it not an lvalue
-				if suffixed.__tag == 'ParenExpr' then
+				if suffixed.parenthesized then
 					return false, GenerateError("Can not assign to parenthesized expression, is not an lvalue")
 				end
 
 				--more processing needed
-				local lhs = { suffixed }
+				local lhs = haxe.array.new()
+				lhs:push(suffixed)
 				while tok:ConsumeSymbol(',', tokenList) do
-					local st, lhsPart = ParseSuffixedExpr(false, nodeAssign)
+					local st, lhsPart = ParseSuffixedExpr(false)
 					if not st then return false, lhsPart end
-					lhs[#lhs+1] = lhsPart
+					lhs:push(lhsPart)
 				end
-				nodeAssign.lhs     = lhs
 
 				--equals
 				if not tok:ConsumeSymbol('=', tokenList) then
@@ -1356,35 +1253,31 @@ local function ParseLua(src, options, hooks)
 				end
 
 				--rhs
-				local rhs = {}
-				local st, firstRhs = ParseExpr(nodeAssign)
+				local rhs = haxe.array.new()
+				local st, firstRhs = ParseExpr()
 				if not st then return false, firstRhs end
-				rhs[1] = firstRhs
+				rhs:push(firstRhs)
 				while tok:ConsumeSymbol(',', tokenList) do
-					local st, rhsPart = ParseExpr(nodeAssign)
+					local st, rhsPart = ParseExpr()
 					if not st then return false, rhsPart end
-					rhs[#rhs+1] = rhsPart
+					rhs:push(rhsPart)
 				end
 
 				--done
-				nodeAssign.rhs     = rhs
+				local nodeAssign = haxe.stmt.AssignmentStatement(lhs, rhs)
 				if not options.disableEmitTokenList then
 					nodeAssign.tokens  = tokenList
 				end
-				nodeAssign.first_line = getFirstLine(tokenList)
+				rawset(nodeAssign, "first_line", getFirstLine(tokenList))
 				stat = nodeAssign
 
-			elseif suffixed.__tag == 'CallExpr' or
-				   suffixed.__tag == 'TableCallExpr' or
-				   suffixed.__tag == 'StringCallExpr'
-			then
+			elseif suffixed[0] == 'CallExpr' then
 				--it's a call statement
-				local nodeCall = suffixed
-				nodeCall.__tag    = 'CallStatement'
+				local nodeCall = haxe.stmt.CallStatement(suffixed[2], suffixed[3]) -- base, args
 				if not options.disableEmitTokenList then
 					nodeCall.tokens     = tokenList
 				end
-				nodeCall.first_line = suffixed.base.first_line
+				rawset(nodeCall, "first_line", suffixed[2].first_line)
 				stat = nodeCall
 			else
 				return false, GenerateError("Assignment Statement Expected")
@@ -1398,14 +1291,14 @@ local function ParseLua(src, options, hooks)
 				tok:Get(stat.tokens)
 			end
 		end
-		return true, setmetatable(stat, amuletRecordMt)
+		return true, stat
 	end
 
 
 	local statListCloseKeywords = lookupify{'end', 'else', 'elseif', 'until'}
 
-	ParseStatementList = function(parent)
-		local nodeStatlist = {}
+	ParseStatementList = function()
+		local nodeStatlist = haxe.array.new()
 
 		local st, nodeStatement
 		local savedp = #curScopeVars
@@ -1415,27 +1308,19 @@ local function ParseLua(src, options, hooks)
 			if not st then return false, nodeStatement end
  
 			local isLast = statListCloseKeywords[tok:Peek().Data] or tok:IsEof()
-			for _, stmt in ipairs(hooks.statement(nodeStatement, curScopeVars, savedp, parent, isFirst, isLast)) do
-				nodeStatlist[#nodeStatlist + 1] = stmt
+			for _, stmt in ipairs(hooks.statement(nodeStatement, curScopeVars, savedp, isFirst, isLast)) do
+				nodeStatlist:push(stmt)
 			end
 			isFirst = false
 
 			-- variables decleared as local aren't in scope when defining them
 			-- so they should be added to scope only after they're fully defined
-			if nodeStatement.__tag == "LocalStatement" then
-				for i = 1, #nodeStatement.names do
-					addVar(nodeStatement.names[i])
+			if nodeStatement[0] == "LocalStatement" then
+				local names = nodeStatement[2]
+				for i = 1, #names do
+					addVar(names[i])
 				end
 			end
-		end
-
-		if tok:IsEof() then
-			local nodeEof = setmetatable({}, amuletRecordMt)
-			nodeEof.__tag = 'Eof'
-			if not options.disableEmitTokenList then
-				nodeEof.tokens  = { tok:Get() }
-			end
-			nodeStatlist[#nodeStatlist + 1] = nodeEof
 		end
 
 		-- remove variables when leaving scope
@@ -1446,15 +1331,12 @@ local function ParseLua(src, options, hooks)
 
 
 	local function mainfunc()
-		return ParseStatementList(setmetatable({
-			__tag = "Main"
-		}, amuletRecordMt))
+		return ParseStatementList()
 	end
 
 	local st, main = mainfunc()
-	--print("Last Token: "..PrintTable(tok:Peek()))
-	return st, main
+	return main
 end
 
-return ParseLua
+return Parser
 	
