@@ -3,6 +3,7 @@ package.loaded.FormatBeautiful = nil
 local parser = require("ParseLua")
 local inspect = require("inspect")
 local FormatBeautify = require("FormatBeautiful")
+local astTransform = require("asttransform")
 
 local function split(str, sep)
     sep = sep or " "
@@ -18,6 +19,7 @@ end
 
 local argv = {...}
 local hooks = {}
+local filename
 
 if argv[1] then
     filename = argv[1]
@@ -37,6 +39,9 @@ local ok, tree = parser(lines, {disableEmitLeadingWhite=true,
 if not ok then
     error(string.format("Error parsing %s: %s", argv[1], tree))
 end
+
+tree = astTransform.pullFuncStmtList(tree)
+tree = astTransform.insertGotos(tree)
 local beautified = FormatBeautify(tree)
 
 if argv[2] then
@@ -57,6 +62,7 @@ if argv[3] then
     out:close()
 end
 
+local sandbox = _G
 local loaded, err = load(beautified, "main chunk", "t", sandbox)
 if not loaded then
     error(err)
