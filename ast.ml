@@ -4,6 +4,10 @@ open import "amulet/base/lua.ml"
 open import "lua/io.ml"
 open import "./rawarray.ml"
 
+module List = 
+  open import "amulet/list.ml"
+  let iter = iter
+
 type table_elem 'a 'b =
 | Key of {key: 'a, value: 'b}
 | KeyString of {key: string, value: 'b}
@@ -148,6 +152,65 @@ and string_of_stmt stmt = match stmt with
 
 and string_of_stmt_list stmt_list = foldl (fun acc stmt -> acc ^ "\n" ^ (string_of_stmt stmt)) "" stmt_list
 
+let fresh_var =
+  let counter = ref 0
+  fun () ->
+    let cur = !counter
+    counter := cur + 1
+    "t" ^ (string_of_int cur)
+
+let replace_t v e = match v with
+| Some t -> VarExpr({name = t})
+| None -> e
+
+let rec func_pullout_stmt stmt = match stmt with
+(* | IfStatement {clauses, else_body} ->
+| WhileStatement {cond, body} ->
+| DoStatement {body} ->
+| NumericForStatement {var, start, finish, step, body} ->
+| GenericForStatement {var_list, generators, body} ->
+| RepeatStatement {cond, body} ->
+| FunctionStatement {name, is_local, f} -> *)
+| LocalStatement {names, init_exprs} -> foldl (fun acc x -> acc ++ (func_pullout_expr x)) [] init_exprs
+(* | LabelStatement {label} ->
+| ReturnStatement {args} ->
+| BreakStatement ->
+| GotoStatement {label} -> *)
+| AssignmentStatement {lhs, rhs} -> (func_pullout_expr (lhs.(0))) ++ (func_pullout_expr (rhs.(0)))
+(* | CallStatement {base, args} -> *)
+| Eof -> []
+| _ -> []
+
+and func_pullout_expr expr = match expr with
+| FunctionExpr func_def -> func_pullout_func_def func_def
+| ParenExpr {inner} -> func_pullout_expr inner
+| VarExpr _ -> [expr]
+| MemberExpr {base, indexer, ident} -> (func_pullout_expr base) ++ [expr]
+| IndexExpr {base, index} -> (func_pullout_expr base) ++ [expr]
+| CallExpr func_call -> let t = fresh_var () in VarExpr({name = t}), [(t, func_call)]
+| StringCallExpr {base, arg} -> let e, stmts = (func_pullout_expr base) in StringCallExpr({base = e, arg}), stmts
+| TableCallExpr {base, arg} -> 
+  let e1, stmts1 = (func_pullout_expr base) in
+  let e2, stmts2 = (func_pullout_expr arg) in
+  TableCallExpr({base = e1, arg = e2}), stmts1 ++ stmts2
+| NumberExpr _ -> expr
+| StringExpr _ -> expr
+| NilExpr -> expr
+| BooleanExpr _ -> expr
+| DotsExpr -> expr
+| ConstructorExpr {entry_list} -> (foldl (fun acc x -> acc ++ (func_pullout_tbl_elem x)) [] entry_list)
+| UnopExpr {rhs, op, op_prec} -> (func_pullout_expr rhs) ++ [expr]
+| BinopExpr {lhs, op, op_prec, rhs} -> (func_pullout_expr lhs) ++ (func_pullout_expr rhs) ++ [expr]
+
+and func_pullout_func_def {args, vararg, body} =
+  foldl (fun acc x -> acc ++ (func_pullout_stmt x)) [] body
+
+and func_pullout_tbl_elem _ = []
+
+and func_pullout_call f = [], [fresh_var (), f]
+
+
 let _ =
-  let ast = parse_file "ParseLua.lua" in
-  iter (fun x -> put_line (string_of_stmt x)) ast
+  let ast = parse_file "test.lua" in
+  (* iter (fun x -> put_line (string_of_stmt x)) ast *)
+  iter (fun x -> let a = func_pullout_stmt x in List.iter (fun y -> put_line (string_of_expr y)) a) ast
