@@ -1,6 +1,8 @@
 import haxe.ds.Option;
 import lua.Table;
 
+using Lambda;
+
 enum FunctionDef {
     FuncDef (args: Array<String>, vararg: Bool, body: Array<Stmt>);
 }
@@ -56,6 +58,114 @@ extern class Parser {
         functionDef: Enum<FunctionDef>
     ): Void;
     static function ParseLua(str: String, options: lua.Table<String, Dynamic>): Array<Stmt>;
+}
+
+
+class PullFunction {
+    var state = 0;
+
+    public function new() {}
+
+    function freshVar(): String {
+        var name = 't$state';
+        state++;
+        return name;
+    }
+
+    function pullFunc(f: FunctionDef, pulled: Map<String, Expr>): FunctionDef {
+        return switch (f) {
+            case FuncDef(args, vararg, body):
+                FuncDef(args, vararg, pullStmts(body));
+        }
+    }
+
+    function pullTableElem(elem: TableElem, pulled: Map<String, Expr>): TableElem {
+        var pullExpr = pullExpr.bind(_, pulled);
+
+        return switch (elem) {
+            case Key(key, value):
+                Key(pullExpr(key), pullExpr(value));
+            case KeyString(key, value):
+                KeyString(key, pullExpr(value));
+            case Value(value):
+                Value(pullExpr(value));
+        }
+    }
+
+    public function pullStmts(stmts: Array<Stmt>): Array<Stmt> {
+        var newStmts = new Array();
+        for (stmt in stmts) {
+            var pulled = new Map();
+            var newStmt = pullStmt(stmt, pulled);
+            for (name => expr in pulled)
+                newStmts.push(LocalStatement([name], [expr]));
+            newStmts.push(newStmt);
+        }
+        return newStmts;
+    }
+
+    function pullStmt(stmt: Stmt, pulled: Map<String, Expr>): Stmt {
+        var pullExpr = pullExpr.bind(_, pulled);
+        var pullFunc = pullFunc.bind(_, pulled);
+
+        return switch (stmt) {
+            case IfStatement(cond, thenBody, elseBody):
+                IfStatement(pullExpr(cond), pullStmts(thenBody), pullStmts(elseBody));
+            case WhileStatement(cond, body):
+                WhileStatement(pullExpr(cond), pullStmts(body));
+            case DoStatement(body):
+                DoStatement(pullStmts(body));
+            case NumericForStatement(variable, start, finish, Some(step), body):
+                NumericForStatement(variable, pullExpr(start), pullExpr(finish), Some(pullExpr(step)), pullStmts(body));
+            case NumericForStatement(variable, start, finish, None, body):
+                NumericForStatement(variable, pullExpr(start), pullExpr(finish), None, pullStmts(body));
+            case GenericForStatement(varList, generators, body):
+                GenericForStatement(varList, generators.map(pullExpr), pullStmts(body));
+            case RepeatStatement(cond, body):
+                RepeatStatement(pullExpr(cond), pullStmts(body));
+            case FunctionStatement(name, isLocal, f):
+                FunctionStatement(pullExpr(name), isLocal, pullFunc(f));
+            case LocalStatement(names, initExprs):
+                LocalStatement(names, initExprs.map(pullExpr));
+            case ReturnStatement(args):
+                ReturnStatement(args.map(pullExpr));
+            case AssignmentStatement(lhs, rhs):
+                AssignmentStatement(lhs.map(pullExpr), rhs.map(pullExpr));
+            case CallStatement(base, args):
+                CallStatement(pullExpr(base), args.map(pullExpr));
+            case LabelStatement(_) | BreakStatement | GotoStatement(_):
+                stmt;
+        }
+    }
+
+    function pullExpr(expr: Expr, pulled: Map<String, Expr>): Expr {
+        var pullExpr = pullExpr.bind(_, pulled);
+        var pullFunc = pullFunc.bind(_, pulled);
+        var pullTableElem = pullTableElem.bind(_, pulled);
+
+        var converted = switch (expr) {
+            case FunctionExpr(f):
+                FunctionExpr(pullFunc(f));
+            case MemberExpr(base, indexer, ident):
+                MemberExpr(pullExpr(base), indexer, ident);
+            case IndexExpr(base, index):
+                IndexExpr(pullExpr(base), pullExpr(index));
+            case CallExpr(base, args):
+                CallExpr(pullExpr(base), args.map(pullExpr));
+            case ConstructorExpr(entryList):
+                ConstructorExpr(entryList.map(pullTableElem));
+            case UnopExpr(rhs, op, opPrec):
+                UnopExpr(pullExpr(rhs), op, opPrec);
+            case BinopExpr(lhs, op, opPrec, rhs):
+                BinopExpr(pullExpr(lhs), op, opPrec, pullExpr(rhs));
+            case NumberExpr(_) | StringExpr(_) | NilExpr | BooleanExpr(_) | DotsExpr | VarExpr(_):
+                expr;
+        }
+        switch (expr) {
+            case CallExpr(_, _): var name = freshVar(); pulled[name] = converted; return VarExpr(name);
+            case _: return converted;
+        }
+    }
 }
 
 
@@ -148,6 +258,8 @@ class LuaParse {
         ]);
         var data = sys.io.File.getContent("ParseLua.lua");
         var parsed = Parser.ParseLua(data, options);
-        Sys.print(sta2str(parsed));
+        var pullTransformer = new PullFunction();
+        var transformed = pullTransformer.pullStmts(parsed);
+        Sys.print(sta2str(transformed));
     }
 }
