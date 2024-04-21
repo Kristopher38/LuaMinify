@@ -170,7 +170,13 @@ class PullFunction {
 
 
 class LuaParse {
-    static function te2str(tableElem: TableElem): String {
+    static function tab(indent: Int): String {
+        return StringTools.rpad("", " ", indent * 4);
+    }
+
+    static function te2str(tableElem: TableElem, indent: Int): String {
+        var e2str = e2str.bind(_, indent);
+
         return switch (tableElem) {
             case Key(key, value): '[${e2str(key)}] = ${e2str(value)}';
             case KeyString(key, value): '$key = ${e2str(value)}';
@@ -178,9 +184,13 @@ class LuaParse {
         }
     }
 
-    static function e2str(expr: Expr): String {
+    static function e2str(expr: Expr, indent: Int): String {
+        var e2str = e2str.bind(_, indent);
+        var f2str = f2str.bind(_, indent);
+        var te2str = te2str.bind(_, indent);
+
         return switch (expr) {
-            case FunctionExpr(f): 'function ${f2str(f)} end';
+            case FunctionExpr(f): 'function ${f2str(f)}\n${tab(indent)}end';
             case VarExpr(name): '$name';
             case MemberExpr(base, indexer, ident): '${e2str(base)}$indexer$ident';
             case IndexExpr(base, index): '${e2str(base)}[${e2str(index)}]';
@@ -190,47 +200,58 @@ class LuaParse {
             case NilExpr: 'nil';
             case BooleanExpr(value): value ? 'true' : 'false';
             case DotsExpr: '...';
-            case ConstructorExpr(entryList): '{${entryList.map(te2str).join(", ")}}';
+            case ConstructorExpr(entryList):
+                if (entryList.length >= 5)
+                    '{\n${tab(indent + 1)}${entryList.map(te2str).join(',\n${tab(indent + 1)}')}\n${tab(indent)}}';
+                else
+                    '{${entryList.map(te2str).join(", ")}}';
             case UnopExpr(rhs, op, opPrec): '$op ${e2str(rhs)}';
             case BinopExpr(lhs, op, opPrec, rhs): '${e2str(lhs)} $op ${e2str(rhs)}';
         }
     }
 
-    static function sta2str(stmtArray: Array<Stmt>): String {
+    static function sta2str(stmtArray: Array<Stmt>, indent: Int = -1): String {
+        var st2str = st2str.bind(_, indent + 1);
         return stmtArray.map(st2str).join("\n");
     }
 
-    static function f2str(f: FunctionDef): String {
+    static function f2str(f: FunctionDef, indent: Int): String {
+        var sta2str = sta2str.bind(_, indent);
         return switch (f) {
             case FuncDef(args, vararg, body):
                 if (vararg)
                     args.push("...");
-                '(${args.join(", ")}) ${sta2str(body)}';
+                '(${args.join(", ")})\n${sta2str(body)}';
         }
     }
 
-    static function st2str(stmt: Stmt): String {
-        return switch (stmt) {
+    static function st2str(stmt: Stmt, indent: Int): String {
+        var e2str = e2str.bind(_, indent);
+        var f2str = f2str.bind(_, indent);
+        var st2str = st2str.bind(_, indent);
+        var sta2str = sta2str.bind(_, indent);
+
+        return tab(indent) + switch (stmt) {
             case IfStatement(cond, thenBody, []):
-                'if ${e2str(cond)} then ${sta2str(thenBody)} end';
+                'if ${e2str(cond)} then\n${sta2str(thenBody)}\n${tab(indent)}end';
             case IfStatement(cond, thenBody, [nextIf = IfStatement(_, _, _)]):
-                'if ${e2str(cond)} then ${sta2str(thenBody)} else${st2str(nextIf)}';
+                'if ${e2str(cond)} then\n${sta2str(thenBody)}\n${tab(indent)}else${StringTools.ltrim(st2str(nextIf))}'; // force no indent
             case IfStatement(cond, thenBody, elseBody):
-                'if ${e2str(cond)} then ${sta2str(thenBody)} else ${sta2str(elseBody)} end';
+                'if ${e2str(cond)} then\n${sta2str(thenBody)}\n${tab(indent)}else\n${sta2str(elseBody)}\n${tab(indent)}end';
             case WhileStatement(cond, body):
-                'while ${e2str(cond)} do ${sta2str(body)} end';
+                'while ${e2str(cond)} do\n${sta2str(body)}\n${tab(indent)}end';
             case DoStatement(body):
-                'do ${sta2str(body)} end';
+                'do\n${sta2str(body)}\n${tab(indent)}end';
             case NumericForStatement(variable, start, finish, Some(step), body):
-                'for $variable = ${e2str(start)}, ${e2str(finish)}, ${e2str(step)} do ${sta2str(body)} end';
+                'for $variable = ${e2str(start)}, ${e2str(finish)}, ${e2str(step)} do\n${sta2str(body)}\n${tab(indent)}end';
             case NumericForStatement(variable, start, finish, None, body):
-                'for $variable = ${e2str(start)}, ${e2str(finish)} do ${sta2str(body)} end';
+                'for $variable = ${e2str(start)}, ${e2str(finish)} do\n${sta2str(body)}\n${tab(indent)}end';
             case GenericForStatement(varList, generators, body):
-                'for ${varList.join(", ")} in ${generators.map(e2str).join(", ")} do ${sta2str(body)} end';
+                'for ${varList.join(", ")} in ${generators.map(e2str).join(", ")} do\n${sta2str(body)}\n${tab(indent)}end';
             case RepeatStatement(cond, body):
-                'repeat ${sta2str(body)} until ${e2str(cond)}';
+                'repeat\n${sta2str(body)}\n${tab(indent)}until ${e2str(cond)}';
             case FunctionStatement(name, isLocal, f):
-                '${isLocal ? 'local ' : ''}function ${e2str(name)}${f2str(f)} end';
+                '${isLocal ? 'local ' : ''}function ${e2str(name)}${f2str(f)}\n${tab(indent)}end';
             case LocalStatement(names, []):
                 'local ${names.join(", ")}';
             case LocalStatement(names, initExprs):
