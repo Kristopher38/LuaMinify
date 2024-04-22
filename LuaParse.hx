@@ -72,14 +72,22 @@ class PullFunction {
         return name;
     }
 
-    function pullFunc(f: FunctionDef, pulled: Map<String, Expr>): FunctionDef {
+    function tablePack(expr: Expr): Expr {
+        return CallExpr(MemberExpr(StringExpr("table"), ".", "pack"), [expr]);
+    }
+
+    function tableUnpack(expr: Expr): Expr {
+        return CallExpr(MemberExpr(StringExpr("table"), ".", "unpack"), [expr]);
+    }
+
+    function pullFunc(f: FunctionDef, pulled: OrderedMap<String, Expr>): FunctionDef {
         return switch (f) {
             case FuncDef(args, vararg, body):
                 FuncDef(args, vararg, pullStmts(body));
         }
     }
 
-    function pullTableElem(elem: TableElem, pulled: Map<String, Expr>): TableElem {
+    function pullTableElem(elem: TableElem, pulled: OrderedMap<String, Expr>): TableElem {
         var pullExpr = pullExpr.bind(_, pulled);
 
         return switch (elem) {
@@ -95,16 +103,16 @@ class PullFunction {
     public function pullStmts(stmts: Array<Stmt>): Array<Stmt> {
         var newStmts = new Array();
         for (stmt in stmts) {
-            var pulled = new Map();
+            var pulled = new OrderedMap();
             var newStmt = pullStmt(stmt, pulled);
             for (name => expr in pulled)
-                newStmts.push(LocalStatement([name], [expr]));
+                newStmts.push(LocalStatement([name], [tablePack(expr)]));
             newStmts.push(newStmt);
         }
         return newStmts;
     }
 
-    function pullStmt(stmt: Stmt, pulled: Map<String, Expr>): Stmt {
+    function pullStmt(stmt: Stmt, pulled: OrderedMap<String, Expr>): Stmt {
         var pullExpr = pullExpr.bind(_, pulled);
         var pullFunc = pullFunc.bind(_, pulled);
 
@@ -138,7 +146,7 @@ class PullFunction {
         }
     }
 
-    function pullExpr(expr: Expr, pulled: Map<String, Expr>): Expr {
+    function pullExpr(expr: Expr, pulled: OrderedMap<String, Expr>): Expr {
         var pullExpr = pullExpr.bind(_, pulled);
         var pullFunc = pullFunc.bind(_, pulled);
         var pullTableElem = pullTableElem.bind(_, pulled);
@@ -162,7 +170,7 @@ class PullFunction {
                 expr;
         }
         switch (expr) {
-            case CallExpr(_, _): var name = freshVar(); pulled[name] = converted; return VarExpr(name);
+            case CallExpr(_, _): var name = freshVar(); pulled[name] = converted; return tableUnpack(VarExpr(name));
             case _: return converted;
         }
     }
