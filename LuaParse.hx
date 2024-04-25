@@ -25,8 +25,8 @@ enum Expr {
     BooleanExpr (value: Bool);
     DotsExpr;
     ConstructorExpr (entryList: Array<TableElem>);
-    UnopExpr (rhs: Expr, op: String, opPrec: Int);
-    BinopExpr (lhs: Expr, op: String, opPrec: Int, rhs: Expr);
+    UnopExpr (rhs: Expr, op: String, opPrec: Int); // TODO: get rid of opPrec
+    BinopExpr (lhs: Expr, op: String, opPrec: Int, rhs: Expr); // TODO: get rid of opPrec
 }
 
 enum Stmt {
@@ -61,15 +61,28 @@ extern class Parser {
 }
 
 
-class PullFunction {
-    var state = 0;
+class NameGenerator {
+    var state: Int;
+    var prefix: String;
 
-    public function new() {}
+    public function new(prefix: String) {
+        this.state = 0;
+        this.prefix = prefix;
+    }
 
-    function freshVar(): String {
-        var name = 't$state';
+    public function next(): String {
+        var name = '$prefix$state';
         state++;
         return name;
+    }
+}
+
+
+class PullFunction {
+    var freshVar: NameGenerator;
+
+    public function new(freshVar: NameGenerator) {
+        this.freshVar = freshVar;
     }
 
     function tablePack(expr: Expr): Expr {
@@ -106,7 +119,8 @@ class PullFunction {
             var pulled = new OrderedMap();
             var newStmt = pullStmt(stmt, pulled);
             for (name => expr in pulled)
-                newStmts.push(LocalStatement([name], [tablePack(expr)]));
+                newStmts.push(LocalStatement([name], [expr]));
+                // newStmts.push(LocalStatement([name], [tablePack(expr)]));
             newStmts.push(newStmt);
         }
         return newStmts;
@@ -170,12 +184,160 @@ class PullFunction {
                 expr;
         }
         switch (expr) {
-            case CallExpr(_, _): var name = freshVar(); pulled[name] = converted; return tableUnpack(VarExpr(name));
+            case CallExpr(_, _):
+                var name = freshVar.next();
+                pulled[name] = converted;
+                return VarExpr(name);
+                // return tableUnpack(VarExpr(name));
             case _: return converted;
         }
     }
 }
 
+class InsertGotos {
+    var freshVar: NameGenerator;
+    var freshLabel: NameGenerator;
+
+    public function new(freshVar: NameGenerator, freshLabel: NameGenerator) {
+        this.freshVar = freshVar;
+        this.freshLabel = freshLabel;
+    }
+
+    function insertFunc(f: FunctionDef, breakLabel: Option<String>): FunctionDef {
+        return switch (f) {
+            case FuncDef(args, vararg, body):
+                FuncDef(args, vararg, body.flatMap(insertStmt.bind(_, breakLabel)));
+        }
+    }
+
+    function hasLastReturn(stmts: Array<Stmt>): Bool {
+        if (stmts.length == 0)
+            return false;
+        return switch (stmts[stmts.length - 1]) {
+            case ReturnStatement(_): true;
+            case _: false;
+        }
+    }
+
+    function insertExpr(expr: Expr, breakLabel: Option<String>): Expr {
+        return switch (expr) {
+            case FunctionExpr(f):
+                FunctionExpr(insertFunc(f, breakLabel));
+            case _: expr;
+        }
+    }
+
+    function insertStmt(stmt: Stmt, breakLabel: Option<String>): Array<Stmt> {
+        var _insertStmt = insertStmt.bind(_, breakLabel);
+        var _insertFunc = insertFunc.bind(_, breakLabel);
+        var _insertExpr = insertExpr.bind(_, breakLabel);
+
+        return switch (stmt) {
+            case IfStatement(cond, thenBody, elseBody):
+                var endLabel = freshLabel.next();
+                if (!hasLastReturn(thenBody))
+                    thenBody.push(GotoStatement(endLabel));
+                if (!hasLastReturn(elseBody) && elseBody.length > 0)
+                    elseBody.push(GotoStatement(endLabel));
+                [
+                    IfStatement(_insertExpr(cond), thenBody.flatMap(_insertStmt), elseBody.flatMap(_insertStmt)),
+                    LabelStatement(endLabel),
+                ];
+            case WhileStatement(cond, body):
+                var whileLabel = freshLabel.next();
+                var breakLabel = freshLabel.next();
+                if (!hasLastReturn(body))
+                    body.push(GotoStatement(whileLabel));
+                [
+                    LabelStatement(whileLabel),
+                    IfStatement(_insertExpr(cond), body.flatMap(insertStmt.bind(_, Some(breakLabel))), []),
+                    LabelStatement(breakLabel)
+                ];
+            case DoStatement(body):
+                [DoStatement(body.flatMap(_insertStmt))];
+            case NumericForStatement(variable, start, finish, step, body):
+                var forLabel = freshLabel.next();
+                var breakLabel = freshLabel.next();
+                var finishVar = freshVar.next();
+                var stepVar = freshVar.next();
+                var stepExpr = switch (step) {
+                    case Some(step): step;
+                    case None: NumberExpr(1);
+                };
+                body.push(AssignmentStatement([VarExpr(variable)], [BinopExpr(VarExpr(variable), "+", 0, stepExpr)]));
+                if (!hasLastReturn(body))
+                    body.push(GotoStatement(forLabel));
+                [
+                    LocalStatement([variable, finishVar, stepVar], [start, finish, stepExpr]),
+                    LabelStatement(forLabel),
+                    IfStatement(BinopExpr(VarExpr(variable), "<=", 0, VarExpr(finishVar)), body.flatMap(insertStmt.bind(_, Some(breakLabel))), []),
+                    LabelStatement(breakLabel),
+                ];
+            case GenericForStatement(varList, generators, body):
+                var forLabel = freshLabel.next();
+                var breakLabel = freshLabel.next();
+                var iterFunc = freshVar.next();
+                var invState = freshVar.next();
+                var ctrlVar = freshVar.next();
+                if (!hasLastReturn(body))
+                    body.push(GotoStatement(forLabel));
+                [
+                    LocalStatement([iterFunc, invState, ctrlVar], generators.map(_insertExpr)),
+                    LabelStatement(forLabel),
+                    LocalStatement(varList, [CallExpr(VarExpr(iterFunc), [VarExpr(invState), VarExpr(ctrlVar)])]),
+                    AssignmentStatement([VarExpr(ctrlVar)], [VarExpr(varList[0])]),
+                    IfStatement(BinopExpr(VarExpr(ctrlVar),  "==", 0, NilExpr), body.flatMap(insertStmt.bind(_, Some(breakLabel))), []),
+                    LabelStatement(breakLabel),
+                ];
+            case RepeatStatement(cond, body):
+                var repeatLabel = freshLabel.next();
+                var breakLabel = freshLabel.next();
+                if (!hasLastReturn(body))
+                    body.push(GotoStatement(repeatLabel));
+                [
+                    LabelStatement(repeatLabel),
+                    DoStatement(body.flatMap(insertStmt.bind(_, Some(breakLabel)))),
+                    IfStatement(_insertExpr(cond), [GotoStatement(repeatLabel)], []),
+                    LabelStatement(breakLabel),
+                ];
+            case FunctionStatement(name, isLocal, f):
+                [FunctionStatement(name, isLocal, insertFunc(f, breakLabel))];
+            case CallStatement(base, args):
+                // TODO: only insert gotos after functions that are known during transformation
+                var label = freshLabel.next();
+                [
+                    CallStatement(base, args.map(_insertExpr)),
+                    GotoStatement(label),
+                    LabelStatement(label),
+                ];
+            case BreakStatement:
+                switch (breakLabel) {
+                    case Some(label): [GotoStatement(label)];
+                    case None: [];
+                }
+            case LocalStatement([name], [CallExpr(base, args)]):
+                // TODO: only insert gotos after functions that are known during transformation
+                var label = freshLabel.next();
+                [
+                    LocalStatement([name], [CallExpr(base, args.map(_insertExpr))]),
+                    GotoStatement(label),
+                    LabelStatement(label),
+                ];
+            case LocalStatement(names, initExprs):
+                [LocalStatement(names, initExprs.map(_insertExpr))];
+            case ReturnStatement(args):
+                [ReturnStatement(args.map(_insertExpr))];
+            case AssignmentStatement(lhs, rhs):
+                [AssignmentStatement(lhs.map(_insertExpr), rhs.map(_insertExpr))];
+            case LabelStatement(_) | GotoStatement(_):
+                [stmt];
+        }
+    }
+
+    public function insertStmts(stmts: Array<Stmt>): Array<Stmt> {
+        return stmts.flatMap(insertStmt.bind(_, None));
+    }
+}
 
 class LuaParse {
     static function tab(indent: Int): String {
@@ -214,7 +376,7 @@ class LuaParse {
                 else
                     '{${entryList.map(te2str).join(", ")}}';
             case UnopExpr(rhs, op, opPrec): '$op ${e2str(rhs)}';
-            case BinopExpr(lhs, op, opPrec, rhs): '${e2str(lhs)} $op ${e2str(rhs)}';
+            case BinopExpr(lhs, op, opPrec, rhs): '${e2str(lhs)} $op ${e2str(rhs)}'; // TODO: implement precedence rules
         }
     }
 
@@ -287,8 +449,12 @@ class LuaParse {
         ]);
         var data = sys.io.File.getContent("ParseLua.lua");
         var parsed = Parser.ParseLua(data, options);
-        var pullTransformer = new PullFunction();
+        var varGenerator = new NameGenerator("t");
+        var labelGenerator = new NameGenerator("l");
+        var pullTransformer = new PullFunction(varGenerator);
         var transformed = pullTransformer.pullStmts(parsed);
-        Sys.print(sta2str(transformed));
+        var gotoTransformer = new InsertGotos(varGenerator, labelGenerator);
+        var gotosInserted = gotoTransformer.insertStmts(transformed);
+        Sys.print(sta2str(gotosInserted));
     }
 }
