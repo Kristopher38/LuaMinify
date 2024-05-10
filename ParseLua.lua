@@ -867,7 +867,7 @@ function Parser.ParseLua(src, options, hooks)
 			local op = tok:Get(tokenList).Data
 			st, exp = ParseSubExpr(unopprio)
 			if not st then return false, exp end
-			local nodeEx = haxe.expr.UnopExpr(exp, op, unopprio)
+			local nodeEx = haxe.expr.UnopExpr(exp, op)
 			if not options.disableEmitTokenList then
 				nodeEx.tokens  = tokenList
 			end
@@ -886,7 +886,7 @@ function Parser.ParseLua(src, options, hooks)
 				local op = tok:Get(tokenList).Data
 				local st, rhs = ParseSubExpr(prio[2])
 				if not st then return false, rhs end
-				local nodeEx = haxe.expr.BinopExpr(exp, op, prio[1], rhs)
+				local nodeEx = haxe.expr.BinopExpr(exp, op, rhs)
 				if not options.disableEmitTokenList then
 					nodeEx.tokens  = tokenList
 				end

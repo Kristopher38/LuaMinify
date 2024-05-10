@@ -25,8 +25,8 @@ enum Expr {
     BooleanExpr (value: Bool);
     DotsExpr;
     ConstructorExpr (entryList: Array<TableElem>);
-    UnopExpr (rhs: Expr, op: String, opPrec: Int); // TODO: get rid of opPrec
-    BinopExpr (lhs: Expr, op: String, opPrec: Int, rhs: Expr); // TODO: get rid of opPrec
+    UnopExpr (rhs: Expr, op: String);
+    BinopExpr (lhs: Expr, op: String, rhs: Expr);
 }
 
 enum Stmt {
@@ -176,10 +176,10 @@ class PullFunction {
                 CallExpr(pullExpr(base), args.map(pullExpr));
             case ConstructorExpr(entryList):
                 ConstructorExpr(entryList.map(pullTableElem));
-            case UnopExpr(rhs, op, opPrec):
-                UnopExpr(pullExpr(rhs), op, opPrec);
-            case BinopExpr(lhs, op, opPrec, rhs):
-                BinopExpr(pullExpr(lhs), op, opPrec, pullExpr(rhs));
+            case UnopExpr(rhs, op):
+                UnopExpr(pullExpr(rhs), op);
+            case BinopExpr(lhs, op, rhs):
+                BinopExpr(pullExpr(lhs), op, pullExpr(rhs));
             case NumberExpr(_) | StringExpr(_) | NilExpr | BooleanExpr(_) | DotsExpr | VarExpr(_):
                 expr;
         }
@@ -264,13 +264,13 @@ class InsertGotos {
                     case Some(step): step;
                     case None: NumberExpr(1);
                 };
-                body.push(AssignmentStatement([VarExpr(variable)], [BinopExpr(VarExpr(variable), "+", 0, stepExpr)]));
+                body.push(AssignmentStatement([VarExpr(variable)], [BinopExpr(VarExpr(variable), "+", stepExpr)]));
                 if (!hasLastReturn(body))
                     body.push(GotoStatement(forLabel));
                 [
                     LocalStatement([variable, finishVar, stepVar], [start, finish, stepExpr]),
                     LabelStatement(forLabel),
-                    IfStatement(BinopExpr(VarExpr(variable), "<=", 0, VarExpr(finishVar)), body.flatMap(insertStmt.bind(_, Some(breakLabel))), []),
+                    IfStatement(BinopExpr(VarExpr(variable), "<=", VarExpr(finishVar)), body.flatMap(insertStmt.bind(_, Some(breakLabel))), []),
                     LabelStatement(breakLabel),
                 ];
             case GenericForStatement(varList, generators, body):
@@ -286,7 +286,7 @@ class InsertGotos {
                     LabelStatement(forLabel),
                     LocalStatement(varList, [CallExpr(VarExpr(iterFunc), [VarExpr(invState), VarExpr(ctrlVar)])]),
                     AssignmentStatement([VarExpr(ctrlVar)], [VarExpr(varList[0])]),
-                    IfStatement(BinopExpr(VarExpr(ctrlVar),  "==", 0, NilExpr), body.flatMap(insertStmt.bind(_, Some(breakLabel))), []),
+                    IfStatement(BinopExpr(VarExpr(ctrlVar),  "==", NilExpr), body.flatMap(insertStmt.bind(_, Some(breakLabel))), []),
                     LabelStatement(breakLabel),
                 ];
             case RepeatStatement(cond, body):
@@ -375,8 +375,8 @@ class LuaParse {
                     '{\n${tab(indent + 1)}${entryList.map(te2str).join(',\n${tab(indent + 1)}')}\n${tab(indent)}}';
                 else
                     '{${entryList.map(te2str).join(", ")}}';
-            case UnopExpr(rhs, op, opPrec): '$op ${e2str(rhs)}';
-            case BinopExpr(lhs, op, opPrec, rhs): '${e2str(lhs)} $op ${e2str(rhs)}'; // TODO: implement precedence rules
+            case UnopExpr(rhs, op): '($op ${e2str(rhs)})';
+            case BinopExpr(lhs, op, rhs): '(${e2str(lhs)} $op ${e2str(rhs)})'; // TODO: implement least-parens printing
         }
     }
 
