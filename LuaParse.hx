@@ -86,11 +86,11 @@ class PullFunction {
     }
 
     function tablePack(expr: Expr): Expr {
-        return CallExpr(MemberExpr(StringExpr("table"), ".", "pack"), [expr]);
+        return CallExpr(MemberExpr(VarExpr("table"), ".", "pack"), [expr]);
     }
 
     function tableUnpack(expr: Expr): Expr {
-        return CallExpr(MemberExpr(StringExpr("table"), ".", "unpack"), [expr]);
+        return CallExpr(MemberExpr(VarExpr("table"), ".", "unpack"), [expr]);
     }
 
     function pullFunc(f: FunctionDef, pulled: OrderedMap<String, Expr>): FunctionDef {
@@ -219,11 +219,42 @@ class InsertGotos {
         }
     }
 
+    function insertTableElem(elem: TableElem, breakLabel: Option<String>): TableElem {
+        var insertExpr = insertExpr.bind(_, breakLabel);
+
+        return switch (elem) {
+            case Key(key, value):
+                Key(insertExpr(key), insertExpr(value));
+            case KeyString(key, value):
+                KeyString(key, insertExpr(value));
+            case Value(value):
+                Value(insertExpr(value));
+        }
+    }
+
     function insertExpr(expr: Expr, breakLabel: Option<String>): Expr {
+        var _insertStmt = insertStmt.bind(_, breakLabel);
+        var _insertFunc = insertFunc.bind(_, breakLabel);
+        var _insertExpr = insertExpr.bind(_, breakLabel);
+        var _insertTableElem = insertTableElem.bind(_, breakLabel);
+
         return switch (expr) {
             case FunctionExpr(f):
-                FunctionExpr(insertFunc(f, breakLabel));
-            case _: expr;
+                FunctionExpr(_insertFunc(f));
+            case MemberExpr(base, indexer, ident):
+                MemberExpr(_insertExpr(base), indexer, ident);
+            case IndexExpr(base, index):
+                IndexExpr(_insertExpr(base), _insertExpr(index));
+            case CallExpr(base, args):
+                CallExpr(_insertExpr(base), args.map(_insertExpr));
+            case ConstructorExpr(entryList):
+                ConstructorExpr(entryList.map(_insertTableElem));
+            case UnopExpr(rhs, op):
+                UnopExpr(_insertExpr(rhs), op);
+            case BinopExpr(lhs, op, rhs):
+                BinopExpr(_insertExpr(lhs), op, _insertExpr(rhs));
+            case NumberExpr(_) | StringExpr(_) | NilExpr | BooleanExpr(_) | DotsExpr | VarExpr(_):
+                expr;
         }
     }
 
@@ -344,6 +375,11 @@ class LuaParse {
         return StringTools.rpad("", " ", indent * 4);
     }
 
+    static function escape(s: String): String {
+        // because formatting with %q makes real newlines we need to replace them with escaped ones
+        return lua.NativeStringTools.gsub(lua.NativeStringTools.format("%q", s), "\\\n", "\\n");
+    }
+
     static function te2str(tableElem: TableElem, indent: Int): String {
         var e2str = e2str.bind(_, indent);
 
@@ -366,7 +402,7 @@ class LuaParse {
             case IndexExpr(base, index): '${e2str(base)}[${e2str(index)}]';
             case CallExpr(base, args): '${e2str(base)}(${args.map(e2str).join(", ")})';
             case NumberExpr(value): '$value';
-            case StringExpr(value): '"$value"';
+            case StringExpr(value): '${escape(value)}';
             case NilExpr: 'nil';
             case BooleanExpr(value): value ? 'true' : 'false';
             case DotsExpr: '...';

@@ -73,6 +73,13 @@ function Parser.LexLua(src, options)
 			return error(">> :"..line..":"..char..": "..err, 0)
 		end
 
+		local function unescape(s)
+			for unescaped, escaped in pairs(EscapeLookup) do
+				s = s:gsub(escaped, unescaped)
+			end
+			return s
+		end
+
 		local function tryGetLongString()
 			local start = p
 			if peek() == '[' then
@@ -298,13 +305,14 @@ function Parser.LexLua(src, options)
 					end
 				end
 				local content = src:sub(contentStart, p-2)
+
 				local constant = src:sub(start, p-1)
-				toEmit = {__tag = 'String', Data = constant, Constant = content}
+				toEmit = {__tag = 'String', Data = constant, Constant = unescape(content)}
 
 			elseif c == '[' then
 				local content, wholetext = tryGetLongString()
 				if wholetext then
-					toEmit = {__tag = 'String', Data = wholetext, Constant = content}
+					toEmit = {__tag = 'String', Data = wholetext, Constant = unescape(content)}
 				else
 					get()
 					toEmit = {__tag = 'Symbol', Data = '['}
@@ -349,7 +357,7 @@ function Parser.LexLua(src, options)
 			else
 				local contents, all = tryGetLongString()
 				if contents then
-					toEmit = {__tag = 'String', Data = all, Constant = contents}
+					toEmit = {__tag = 'String', Data = all, Constant = unescape(contents)}
 				else
 					generateError("Unexpected Symbol `"..c.."` in source.")
 				end
