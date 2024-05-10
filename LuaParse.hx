@@ -20,7 +20,7 @@ enum Expr {
     IndexExpr (base: Expr, index: Expr);
     CallExpr (base: Expr, args: Array<Expr>);
     NumberExpr (value: Int);
-    StringExpr (value: String); // TODO: strip "" from value in ParseLua
+    StringExpr (value: String);
     NilExpr;
     BooleanExpr (value: Bool);
     DotsExpr;
@@ -366,7 +366,7 @@ class LuaParse {
             case IndexExpr(base, index): '${e2str(base)}[${e2str(index)}]';
             case CallExpr(base, args): '${e2str(base)}(${args.map(e2str).join(", ")})';
             case NumberExpr(value): '$value';
-            case StringExpr(value): '$value';
+            case StringExpr(value): '"$value"';
             case NilExpr: 'nil';
             case BooleanExpr(value): value ? 'true' : 'false';
             case DotsExpr: '...';

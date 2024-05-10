@@ -678,7 +678,7 @@ function Parser.ParseLua(src, options, hooks)
 			elseif not onlyDotColon and tok:Is('String') then
 				--string call
 				local args = haxe.array.new()
-				args:push(haxe.expr.StringExpr(tok:Get(tokenList).Data))
+				args:push(haxe.expr.StringExpr(tok:Get(tokenList).Constant))
 				local nodeCall = haxe.expr.CallExpr(prim, args)
 				if not options.disableEmitTokenList then
 					nodeCall.tokens     = tokenList
@@ -724,7 +724,7 @@ function Parser.ParseLua(src, options, hooks)
 			return true, nodeNum
 
 		elseif tok:Is('String') then
-			local nodeStr = haxe.expr.StringExpr(tok:Get(tokenList).Data)
+			local nodeStr = haxe.expr.StringExpr(tok:Get(tokenList).Constant)
 			if not options.disableEmitTokenList then
 				nodeStr.tokens  = tokenList
 			end
